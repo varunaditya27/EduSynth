@@ -4,7 +4,9 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import SpotlightCard from '@/components/SpotlightCard';
 import StarBorder from '@/components/StarBorder';
-import { X, Mail, Lock, User, Chrome } from 'lucide-react';
+import { X, Mail, Lock, User, Chrome, AlertCircle } from 'lucide-react';
+import { useAuth } from '@/contexts/auth-context';
+import LoadingDots from '@/components/ui/loading-dots';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -13,22 +15,50 @@ interface AuthModalProps {
 }
 
 export default function AuthModal({ isOpen, onClose, defaultMode = 'login' }: AuthModalProps) {
+  const { login, signup, loginWithGoogle } = useAuth();
   const [mode, setMode] = useState<'login' | 'signup'>(defaultMode);
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     password: '',
   });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Implement authentication logic
-    console.log('Auth attempt:', mode, formData);
+    setError(null);
+    setLoading(true);
+
+    try {
+      if (mode === 'signup') {
+        await signup(formData.name, formData.email, formData.password);
+      } else {
+        await login(formData.email, formData.password);
+      }
+      
+      // Close modal on success
+      onClose();
+      
+      // Reset form
+      setFormData({ name: '', email: '', password: '' });
+    } catch (err: unknown) {
+      console.error('Auth error:', err);
+      setError((err as Error).message || 'Authentication failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleGoogleLogin = () => {
+  const handleGoogleLogin = async () => {
+    setError(null);
+    setError('Google OAuth not yet implemented. Please use email/password.');
     // TODO: Implement Google OAuth
-    console.log('Google login attempt');
+    // The flow would be:
+    // 1. Open Google OAuth popup
+    // 2. Get ID token from Google
+    // 3. Call loginWithGoogle(idToken)
+    // 4. Close modal on success
   };
 
   if (!isOpen) return null;
@@ -99,15 +129,17 @@ export default function AuthModal({ isOpen, onClose, defaultMode = 'login' }: Au
               {/* Google Sign In */}
               <StarBorder
                 as="button"
+                type="button"
                 color="rgba(66, 133, 244, 0.8)"
                 speed="4s"
                 thickness={2}
                 className="w-full"
                 onClick={handleGoogleLogin}
+                disabled={loading}
               >
                 <motion.div
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
+                  whileHover={{ scale: loading ? 1 : 1.02 }}
+                  whileTap={{ scale: loading ? 1 : 0.98 }}
                   className="flex items-center justify-center gap-3 px-6 py-3 rounded-lg bg-white/5 hover:bg-white/10 transition-all"
                 >
                   <Chrome className="w-5 h-5 text-white" />
@@ -116,6 +148,18 @@ export default function AuthModal({ isOpen, onClose, defaultMode = 'login' }: Au
                   </span>
                 </motion.div>
               </StarBorder>
+
+              {/* Error Message */}
+              {error && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm"
+                >
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{error}</span>
+                </motion.div>
+              )}
 
               {/* Divider */}
               <div className="relative">
@@ -211,13 +255,18 @@ export default function AuthModal({ isOpen, onClose, defaultMode = 'login' }: Au
                   speed="3s"
                   thickness={2}
                   className="w-full"
+                  disabled={loading}
                 >
                   <motion.div
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
+                    whileHover={{ scale: loading ? 1 : 1.02 }}
+                    whileTap={{ scale: loading ? 1 : 0.98 }}
                     className="px-6 py-3 rounded-lg bg-linear-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 transition-all font-semibold text-white"
                   >
-                    {mode === 'login' ? 'Sign In' : 'Create Account'}
+                    {loading ? (
+                      <LoadingDots />
+                    ) : (
+                      mode === 'login' ? 'Sign In' : 'Create Account'
+                    )}
                   </motion.div>
                 </StarBorder>
               </form>
