@@ -59,6 +59,7 @@ model Lecture {
   // Relations
   slides            Slide[]
   quizQuestions     QuizQuestion[]
+  mindMap           MindMap?
   
   // Timestamps
   createdAt         DateTime      @default(now())
@@ -127,6 +128,32 @@ model QuizQuestion {
   @@unique([lectureId, questionNumber])
   @@index([lectureId])
   @@map("quiz_questions")
+}
+
+// ===========================
+// MINDMAP FEATURE
+// ===========================
+
+model MindMap {
+  id                String    @id @default(uuid())
+  lectureId         String    @unique
+  lecture           Lecture   @relation(fields: [lectureId], references: [id], onDelete: Cascade)
+  
+  // Mindmap Data
+  data              Json      // Hierarchical structure with central node, branches, connections
+  mermaidSyntax     String    @db.Text  // Mermaid diagram syntax for visualization
+  
+  // Metadata
+  nodeCount         Int       // Total number of nodes in the mindmap
+  branchCount       Int       // Number of main branches
+  maxDepth          Int       // Maximum depth of the hierarchy
+  
+  // Timestamps
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  @@index([lectureId])
+  @@map("mindmaps")
 }
 
 // ===========================
