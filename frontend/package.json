@@ -9,10 +9,14 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@fontsource/jetbrains-mono": "^5.2.8",
+    "@fontsource/space-grotesk": "^5.2.10",
+    "@gsap/react": "^2.1.2",
     "@tanstack/react-query": "^5.90.7",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^12.23.24",
+    "gsap": "^3.13.0",
     "lucide-react": "^0.553.0",
     "next": "16.0.1",
     "ogl": "^1.0.11",
