@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     # Gemini API
     GEMINI_API_KEY: str
 
+    # Groq API
+    GROQ_API_KEY: str
+
     # CORS
     CORS_ORIGINS: List[str] = Field(default_factory=list)
 
