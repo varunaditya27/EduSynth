@@ -6,6 +6,7 @@ import { apiClient, Lecture } from '@/lib/api';
 import Iridescence from '@/components/Iridescence';
 import Navbar from '@/components/ui/navbar';
 import GradientButton from '@/components/ui/gradient-button';
+import StarBorder from '@/components/StarBorder';
 import LectureList from '@/components/sections/lecture-list';
 import LoadingDots from '@/components/ui/loading-dots';
 import { Plus } from 'lucide-react';
@@ -58,10 +59,17 @@ export default function DashboardPage() {
                 Manage and view all your generated lectures
               </p>
             </div>
-            <GradientButton onClick={() => router.push('/generator')}>
-              <Plus className="w-5 h-5 mr-2" />
-              Create New
-            </GradientButton>
+            <StarBorder
+              as="div"
+              color="rgba(138, 43, 226, 0.8)"
+              speed="4s"
+              thickness={2}
+            >
+              <GradientButton onClick={() => router.push('/generator')}>
+                <Plus className="w-5 h-5 mr-2" />
+                Create New
+              </GradientButton>
+            </StarBorder>
           </div>
 
           {loading ? (
@@ -79,10 +87,17 @@ export default function DashboardPage() {
                       Let&apos;s create something amazing
                     </p>
                   </div>
-                  <GradientButton onClick={() => router.push('/generator')}>
-                    <Plus className="w-5 h-5 mr-2" />
-                    Create First Lecture
-                  </GradientButton>
+                  <StarBorder
+                    as="div"
+                    color="rgba(255, 105, 180, 0.8)"
+                    speed="3.5s"
+                    thickness={2}
+                  >
+                    <GradientButton onClick={() => router.push('/generator')}>
+                      <Plus className="w-5 h-5 mr-2" />
+                      Create First Lecture
+                    </GradientButton>
+                  </StarBorder>
                 </div>
               ) : (
                 <LectureList lectures={lectures} onDelete={handleDelete} />
