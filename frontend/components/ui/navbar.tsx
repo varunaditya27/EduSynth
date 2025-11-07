@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import ThemeToggle from './theme-toggle';
 import GradientButton from './gradient-button';
+import AuthModal from '@/components/modals/auth-modal';
 import { Menu, X, Sparkles } from 'lucide-react';
 
 interface NavbarProps {
@@ -13,6 +13,8 @@ interface NavbarProps {
 
 export default function Navbar({ variant = 'landing' }: NavbarProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const pathname = usePathname();
 
   const isActive = (path: string) => pathname === path;
@@ -57,21 +59,32 @@ export default function Navbar({ variant = 'landing' }: NavbarProps) {
               </>
             )}
 
-            <ThemeToggle />
-
             {variant === 'landing' && (
               <div className="flex items-center gap-3">
-                <button className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+                <button
+                  onClick={() => {
+                    setAuthMode('login');
+                    setAuthModalOpen(true);
+                  }}
+                  className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                >
                   Login
                 </button>
-                <GradientButton size="sm">Sign Up</GradientButton>
+                <GradientButton
+                  size="sm"
+                  onClick={() => {
+                    setAuthMode('signup');
+                    setAuthModalOpen(true);
+                  }}
+                >
+                  Sign Up
+                </GradientButton>
               </div>
             )}
           </div>
 
           {/* Mobile menu button */}
           <div className="flex md:hidden items-center gap-3">
-            <ThemeToggle />
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="text-foreground hover:text-primary transition-colors"
@@ -120,15 +133,38 @@ export default function Navbar({ variant = 'landing' }: NavbarProps) {
 
             {variant === 'landing' && (
               <div className="space-y-3 pt-4 border-t border-white/10">
-                <button className="block w-full text-left text-base font-medium text-muted-foreground hover:text-foreground transition-colors">
+                <button
+                  onClick={() => {
+                    setAuthMode('login');
+                    setAuthModalOpen(true);
+                    setMobileMenuOpen(false);
+                  }}
+                  className="block w-full text-left text-base font-medium text-muted-foreground hover:text-foreground transition-colors"
+                >
                   Login
                 </button>
-                <GradientButton className="w-full">Sign Up</GradientButton>
+                <GradientButton
+                  className="w-full"
+                  onClick={() => {
+                    setAuthMode('signup');
+                    setAuthModalOpen(true);
+                    setMobileMenuOpen(false);
+                  }}
+                >
+                  Sign Up
+                </GradientButton>
               </div>
             )}
           </div>
         </div>
       )}
+
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        defaultMode={authMode}
+      />
     </nav>
   );
 }

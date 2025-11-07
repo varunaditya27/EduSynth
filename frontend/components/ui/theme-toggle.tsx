@@ -6,7 +6,7 @@ import { motion } from 'framer-motion';
 
 export default function ThemeToggle() {
   // Start with a deterministic value for SSR (false) and hydrate on the client
-  const [isDark, setIsDark] = useState(false);
+  const [isDark, setIsDark] = useState(true);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
