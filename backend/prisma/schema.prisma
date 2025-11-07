@@ -1,5 +1,3 @@
-// prisma/schema.prisma
-
 generator client {
   provider = "prisma-client-py"
   recursive_type_depth = -1  // Enable full recursive types (recommended for Pyright/Pylance)
@@ -9,6 +7,7 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
+  shadowDatabaseUrl = env("DIRECT_URL")
 }
 
 // ===========================
@@ -24,6 +23,8 @@ model User {
   
   // Relations
   lectures      Lecture[]
+  slideDecks    SlideDeck[]
+  generationJobs GenerationJob[]
   
   @@map("users")
 }
@@ -70,7 +71,7 @@ model Lecture {
 }
 
 // ===========================
-// SLIDE STRUCTURE
+// SLIDE STRUCTURE (Lecture Feature)
 // ===========================
 
 model Slide {
@@ -126,6 +127,119 @@ model QuizQuestion {
   @@unique([lectureId, questionNumber])
   @@index([lectureId])
   @@map("quiz_questions")
+}
+
+// ===========================
+// SLIDE DECK FEATURE (New)
+// ===========================
+
+model SlideDeck {
+  id                   String              @id @default(uuid())
+  userId               String
+  user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Deck Configuration
+  topic                String
+  audience             String?
+  durationMinutes      Int
+  theme                String              // minimalist, chalkboard, corporate
+  format               String              // pptx, pdf
+  slideCount           Int
+  
+  // Processing Status
+  status               String              // PENDING, GENERATING, COMPLETED, FAILED
+  
+  // Storage
+  r2Key                String              // R2 object key for file
+  r2Bucket             String
+  fileSizeBytes        Int?
+  checksum             String?
+  coverThumbR2Key      String?
+  
+  // Relations
+  deckSlides           DeckSlide[]
+  generationJobs       GenerationJob[]
+  assetAttributions    AssetAttribution[]
+  
+  // Timestamps
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  
+  @@index([userId])
+  @@map("slide_decks")
+}
+
+// ===========================
+// DECK SLIDE STRUCTURE (New)
+// ===========================
+
+model DeckSlide {
+  id              String     @id @default(uuid())
+  deckId          String
+  deck            SlideDeck  @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  
+  // Slide Content
+  index           Int        // Slide order/position
+  heading         String
+  bullets         Json       // JSON array of bullet points
+  speakerNotes    String     @db.Text
+  
+  // Image Asset
+  imageQuery      String?
+  imageR2Key      String?
+  
+  // Timestamps
+  createdAt       DateTime   @default(now())
+  
+  @@index([deckId])
+  @@map("deck_slides")
+}
+
+// ===========================
+// GENERATION JOB (New)
+// ===========================
+
+model GenerationJob {
+  id              String     @id @default(uuid())
+  userId          String
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  deckId          String?
+  deck            SlideDeck? @relation(fields: [deckId], references: [id], onDelete: SetNull)
+  
+  // Job Status
+  status          String     // QUEUED, PROCESSING, COMPLETED, FAILED
+  progressPct     Int        @default(0)
+  
+  // Error Handling
+  errorCode       String?
+  errorMessage    String?    @db.Text
+  
+  // Timing
+  startedAt       DateTime   @default(now())
+  endedAt         DateTime?
+  
+  @@index([userId])
+  @@index([deckId])
+  @@map("generation_jobs")
+}
+
+// ===========================
+// ASSET ATTRIBUTION (New)
+// ===========================
+
+model AssetAttribution {
+  id           String    @id @default(uuid())
+  deckId       String
+  deck         SlideDeck @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  
+  slideIndex   Int
+  source       String    // "unsplash", "pexels", etc.
+  authorName   String
+  imageUrl     String
+  license      String?
+  
+  @@map("asset_attributions")
 }
 
 // ===========================
