@@ -11,6 +11,7 @@ import StatusBadge from '@/components/ui/status-badge';
 import QuizPreviewModal from '@/components/modals/quiz-preview-modal';
 import LoadingDots from '@/components/ui/loading-dots';
 import ChatWidget from '@/components/chat/chat-widget';
+import MindmapWidget from '@/components/mindmap/mindmap-widget';
 import { ArrowLeft, Download, FileText, PlayCircle } from 'lucide-react';
 import Link from 'next/link';
 
@@ -155,6 +156,16 @@ export default function LectureDetailPage() {
               </div>
             </GlassCard>
           )}
+
+          <GlassCard>
+            <div className="space-y-4">
+              <h2 className="text-2xl font-bold">Concept Map</h2>
+              <p className="text-muted-foreground">
+                Visualize the lecture structure with an AI-generated mind map
+              </p>
+              <MindmapWidget lectureId={lecture.id} lectureTopic={lecture.topic} />
+            </div>
+          </GlassCard>
 
           <GlassCard>
             <div className="space-y-4">
