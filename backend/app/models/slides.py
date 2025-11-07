@@ -14,12 +14,12 @@ class GenerateSlidesRequest(BaseModel):
 class JobQueuedResponse(BaseModel):
     """Response after successfully queuing a generation job"""
     job_id: str
-    status: str
+    status: Literal["QUEUED"]
 
 class JobStatusResponse(BaseModel):
     """Response containing job status and progress"""
     job_id: str
-    status: str
+    status: Literal["QUEUED", "GENERATING", "UPLOADING", "READY", "FAILED"]
     progress: int
     deck_id: Optional[str] = None
     error: Optional[str] = None
