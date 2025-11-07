@@ -42,6 +42,60 @@ export interface ChatResponse {
   model: string;
 }
 
+export interface MindMapNode {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+export interface MindMapChild {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+export interface MindMapBranch {
+  id: string;
+  label: string;
+  parent: string;
+  description?: string;
+  children: MindMapChild[];
+}
+
+export interface MindMapConnection {
+  from: string;
+  to: string;
+  type: string;
+}
+
+export interface MindMapData {
+  central: MindMapNode;
+  branches: MindMapBranch[];
+  connections: MindMapConnection[];
+}
+
+export interface MindMapResponse {
+  lecture_id: string;
+  mindmap_id: string;
+  mind_map: MindMapData;
+  mermaid_syntax: string;
+  metadata: {
+    node_count: number;
+    branch_count: number;
+    max_depth: number;
+    connection_count?: number;
+  };
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface MindMapGenerateRequest {
+  lecture_id: string;
+  regenerate?: boolean;
+  max_branches?: number;
+  max_depth?: number;
+}
+
 export interface CreateLectureInput {
   topic: string;
   audience: string;
@@ -189,6 +243,58 @@ class ApiClient {
     }
 
     return response.json();
+  }
+
+  // Mindmap Methods
+  async generateMindmap(request: MindMapGenerateRequest, token?: string): Promise<MindMapResponse> {
+    const response = await fetch(`${this.baseUrl}/v1/mindmap/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to generate mindmap' }));
+      throw new Error(error.detail || 'Failed to generate mindmap');
+    }
+
+    return response.json();
+  }
+
+  async getMindmapByLecture(lectureId: string, token?: string): Promise<MindMapResponse> {
+    const response = await fetch(`${this.baseUrl}/v1/mindmap/lecture/${lectureId}`, {
+      method: 'GET',
+      headers: {
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error('MINDMAP_NOT_FOUND');
+      }
+      const error = await response.json().catch(() => ({ detail: 'Failed to get mindmap' }));
+      throw new Error(error.detail || 'Failed to get mindmap');
+    }
+
+    return response.json();
+  }
+
+  async deleteMindmap(lectureId: string, token?: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/v1/mindmap/lecture/${lectureId}`, {
+      method: 'DELETE',
+      headers: {
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to delete mindmap' }));
+      throw new Error(error.detail || 'Failed to delete mindmap');
+    }
   }
 }
 
