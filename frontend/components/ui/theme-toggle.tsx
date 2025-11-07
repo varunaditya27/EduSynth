@@ -5,30 +5,36 @@ import { Moon, Sun } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function ThemeToggle() {
-  const [isDark, setIsDark] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    const theme = localStorage.getItem('theme');
-    return theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches);
-  });
+  // Start with a deterministic value for SSR (false) and hydrate on the client
+  const [isDark, setIsDark] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    // On mount, read the user's preference from localStorage or OS setting
+    const theme = localStorage.getItem('theme');
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const isDarkMode = theme === 'dark' || (!theme && prefersDark);
+    // Defer state update to avoid synchronous setState inside effect
+    setTimeout(() => {
+      setIsDark(isDarkMode);
+      setMounted(true);
+    }, 0);
+  }, []);
+
+  useEffect(() => {
+    // Apply the theme to the document when mounted or when isDark changes
+    if (!mounted) return;
     if (isDark) {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
     }
-  }, [isDark]);
+  }, [isDark, mounted]);
 
   const toggleTheme = () => {
     const newTheme = !isDark;
     setIsDark(newTheme);
-    if (newTheme) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    }
+    localStorage.setItem('theme', newTheme ? 'dark' : 'light');
   };
 
   return (
@@ -43,10 +49,11 @@ export default function ThemeToggle() {
         animate={{ rotate: isDark ? 360 : 0, opacity: 1 }}
         transition={{ duration: 0.3 }}
       >
-        {isDark ? (
-          <Moon className="w-5 h-5 text-primary" />
+        {/* Render icon only when mounted to avoid SSR/CSR markup mismatch */}
+        {mounted ? (
+          isDark ? <Moon className="w-5 h-5 text-primary" /> : <Sun className="w-5 h-5 text-primary" />
         ) : (
-          <Sun className="w-5 h-5 text-primary" />
+          <span className="w-5 h-5" />
         )}
       </motion.div>
     </motion.button>

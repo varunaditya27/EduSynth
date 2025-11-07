@@ -9,6 +9,7 @@ interface GradientButtonProps {
   type?: 'button' | 'submit' | 'reset';
   disabled?: boolean;
   variant?: 'primary' | 'secondary';
+  size?: 'sm' | 'md' | 'lg';
   className?: string;
 }
 
@@ -18,9 +19,16 @@ export default function GradientButton({
   type = 'button',
   disabled = false,
   variant = 'primary',
+  size = 'md',
   className = '',
 }: GradientButtonProps) {
-  const baseClasses = 'relative px-8 py-3 rounded-lg font-semibold text-white overflow-hidden transition-all';
+  const sizeClasses = {
+    sm: 'px-4 py-2 text-sm',
+    md: 'px-8 py-3',
+    lg: 'px-10 py-4 text-lg',
+  }[size];
+  
+  const baseClasses = `relative ${sizeClasses} rounded-lg font-semibold text-white overflow-hidden transition-all`;
   const variantClasses = variant === 'primary' 
     ? 'bg-gradient-to-r from-primary to-accent hover:shadow-lg hover:shadow-primary/50' 
     : 'bg-gradient-to-r from-secondary to-muted hover:shadow-lg hover:shadow-secondary/50';
