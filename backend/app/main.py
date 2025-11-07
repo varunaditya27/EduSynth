@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from .routers import slides
+from .routers import slides, recommendations, chatbot
 from .core.config import settings
 
 from pydantic import BaseModel
@@ -24,7 +24,23 @@ app.add_middleware(
 )
 
 app.include_router(slides.router, prefix="/v1/slides", tags=["slides"])
+app.include_router(recommendations.router, prefix="/v1/recommendations", tags=["recommendations"])
+app.include_router(chatbot.router, prefix="/v1/chatbot", tags=["chatbot"])
+# backend/app/main.py
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import uuid
+from pathlib import Path
+from .gemini_utils import generate_mock_slides
+from .schema import SlidesPayload
+import json
 
+# new imports
+from .tts_utils import synthesize_audio
+
+from .video_sync import assemble_video_from_slides
+
+app = FastAPI()
 OUTDIR = Path(__file__).resolve().parent.parent / "output"
 
 class GenerateRequest(BaseModel):
