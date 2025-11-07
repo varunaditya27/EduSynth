@@ -6,7 +6,7 @@ starlette==0.38.1
 # Pydantic & Validation
 pydantic==2.12.4
 pydantic-settings==2.4.0
-pydantic-core==2.20.1
+pydantic-core==2.41.5
 
 # Type Hints
 typing-extensions==4.14.1
@@ -23,7 +23,7 @@ charset-normalizer==3.4.4
 # Auth & Security
 python-jose[cryptography]==3.3.0
 python-multipart==0.0.6
-tenacity==8.3.1
+tenacity==9.1.2
 jinja2==3.1.4
 python-dotenv==1.0.1
 
@@ -49,7 +49,7 @@ moviepy==1.0.3
 imageio==2.37.0
 imageio-ffmpeg==0.6.0
 pydub==0.25.1
-elevenlabs==0.2.31
+elevenlabs==2.22.0
 
 # Utilities
 numpy==2.1.3
