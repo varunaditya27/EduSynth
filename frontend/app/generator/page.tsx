@@ -1,13 +1,12 @@
 import LectureForm from '@/components/forms/lecture-form';
 import Iridescence from '@/components/Iridescence';
 import SplashCursor from '@/components/SplashCursor';
-import ThemeToggle from '@/components/ui/theme-toggle';
-import { ArrowLeft } from 'lucide-react';
-import Link from 'next/link';
+import Navbar from '@/components/ui/navbar';
 
 export default function GeneratorPage() {
   return (
     <div className="relative min-h-screen overflow-hidden">
+      <Navbar variant="app" />
       <Iridescence
         color={[0.5, 0.7, 1]}
         speed={0.7}
@@ -21,19 +20,8 @@ export default function GeneratorPage() {
         TRANSPARENT={true}
       />
 
-      <div className="relative z-10 min-h-screen py-12 px-4">
+      <div className="relative z-10 min-h-screen py-12 px-4 pt-24">
         <div className="max-w-4xl mx-auto">
-          <div className="flex items-center justify-between mb-8">
-            <Link
-              href="/"
-              className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5" />
-              Back to Home
-            </Link>
-            <ThemeToggle />
-          </div>
-
           <div className="space-y-8">
             <div className="text-center space-y-4">
               <h1 className="text-5xl md:text-6xl font-bold gradient-text">

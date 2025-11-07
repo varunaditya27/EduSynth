@@ -3,40 +3,52 @@
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import GradientButton from '@/components/ui/gradient-button';
+import StarBorder from '@/components/StarBorder';
+import SplitText from '@/components/SplitText';
+import { Sparkles } from 'lucide-react';
 
 export default function HeroSection() {
   const router = useRouter();
 
   const title = 'Transform Knowledge Into Cinematic Lectures';
-  const words = title.split(' ');
 
   return (
-    <section className="relative min-h-screen flex items-center justify-center px-4">
+    <section className="relative min-h-screen flex items-center justify-center px-4 pt-16">
       <div className="max-w-5xl mx-auto text-center space-y-8">
-        <motion.h1
-          className="text-5xl md:text-7xl font-bold leading-tight"
-          initial={{ opacity: 0, y: 50 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, ease: 'easeOut' }}
+        {/* Animated badge */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5 }}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 backdrop-blur-sm border border-white/10"
         >
-          {words.map((word, wordIndex) => (
-            <motion.span
-              key={wordIndex}
-              className="inline-block mr-4 bg-linear-to-r from-primary via-accent to-pink-500 bg-clip-text text-transparent"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: wordIndex * 0.1, duration: 0.5 }}
-            >
-              {word}
-            </motion.span>
-          ))}
-        </motion.h1>
+          <Sparkles className="w-4 h-4 text-primary" />
+          <span className="text-sm font-medium text-primary">Powered by Advanced AI</span>
+        </motion.div>
+
+        {/* SplitText Title */}
+        <div className="text-5xl md:text-7xl lg:text-8xl font-bold leading-tight">
+          <SplitText
+            text={title}
+            tag="h1"
+            delay={50}
+            duration={0.8}
+            ease="power3.out"
+            splitType="chars"
+            threshold={0.1}
+            className="inline-block"
+            from={{ opacity: 0, y: 60, rotateX: -90 }}
+            to={{ opacity: 1, y: 0, rotateX: 0 }}
+            textAlign="center"
+          />
+        </div>
 
         <motion.p
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 1.5, duration: 0.8 }}
-          className="text-xl md:text-2xl text-muted-foreground max-w-3xl mx-auto"
+          transition={{ delay: 1.2, duration: 0.8 }}
+          className="text-xl md:text-2xl text-white/80 max-w-3xl mx-auto leading-relaxed"
+          style={{ textShadow: '0 2px 20px rgba(0, 0, 0, 0.5)' }}
         >
           AI-powered video generation turns any topic into an engaging presentation—complete with
           slides, voiceover, and quiz questions—in under five minutes.
@@ -45,14 +57,70 @@ export default function HeroSection() {
         <motion.div
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 2, duration: 0.5, type: 'spring' }}
+          transition={{ delay: 1.8, duration: 0.5, type: 'spring' }}
+          className="flex flex-col sm:flex-row gap-4 justify-center items-center"
         >
-          <GradientButton
-            onClick={() => router.push('/generator')}
-            className="text-xl px-12 py-5"
+          <StarBorder
+            as="div"
+            color="rgba(138, 43, 226, 0.8)"
+            speed="4s"
+            thickness={2}
           >
-            Create Your First Lecture
-          </GradientButton>
+            <GradientButton
+              onClick={() => router.push('/generator')}
+              size="lg"
+              className="group relative overflow-hidden"
+            >
+              <span className="relative z-10 flex items-center gap-2">
+                Create Your First Lecture
+                <motion.span
+                  animate={{ x: [0, 4, 0] }}
+                  transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
+                >
+                  →
+                </motion.span>
+              </span>
+            </GradientButton>
+          </StarBorder>
+          
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => {
+              const featuresSection = document.querySelector('#features');
+              featuresSection?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="px-8 py-4 rounded-lg font-semibold text-white bg-white/5 backdrop-blur-sm border border-white/20 hover:bg-white/10 transition-all"
+          >
+            See How It Works
+          </motion.button>
+        </motion.div>
+
+        {/* Floating stats */}
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 2.2, duration: 0.8 }}
+          className="pt-12 flex flex-wrap justify-center gap-8 md:gap-16"
+        >
+          {[
+            { value: '5min', label: 'Generation Time' },
+            { value: '5+', label: 'Visual Themes' },
+            { value: 'HD', label: 'Video Quality' },
+          ].map((stat, index) => (
+            <motion.div
+              key={stat.label}
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 2.4 + index * 0.1 }}
+              className="text-center"
+            >
+              <div className="text-3xl md:text-4xl font-bold gradient-text mb-1">
+                {stat.value}
+              </div>
+              <div className="text-sm text-white/60">{stat.label}</div>
+            </motion.div>
+          ))}
         </motion.div>
       </div>
     </section>

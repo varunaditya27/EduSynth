@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient, Lecture } from '@/lib/api';
 import Iridescence from '@/components/Iridescence';
-import ThemeToggle from '@/components/ui/theme-toggle';
+import Navbar from '@/components/ui/navbar';
 import GradientButton from '@/components/ui/gradient-button';
 import LectureList from '@/components/sections/lecture-list';
 import LoadingDots from '@/components/ui/loading-dots';
@@ -41,6 +41,7 @@ export default function DashboardPage() {
 
   return (
     <div className="relative min-h-screen overflow-hidden">
+      <Navbar variant="app" />
       <Iridescence
         color={[0.4, 0.5, 0.9]}
         speed={0.3}
@@ -48,7 +49,7 @@ export default function DashboardPage() {
         mouseReact={false}
       />
 
-      <div className="relative z-10 min-h-screen py-12 px-4">
+      <div className="relative z-10 min-h-screen py-12 px-4 pt-24">
         <div className="max-w-7xl mx-auto space-y-8">
           <div className="flex items-center justify-between">
             <div>
@@ -57,13 +58,10 @@ export default function DashboardPage() {
                 Manage and view all your generated lectures
               </p>
             </div>
-            <div className="flex items-center gap-4">
-              <ThemeToggle />
-              <GradientButton onClick={() => router.push('/generator')}>
-                <Plus className="w-5 h-5 mr-2" />
-                Create New
-              </GradientButton>
-            </div>
+            <GradientButton onClick={() => router.push('/generator')}>
+              <Plus className="w-5 h-5 mr-2" />
+              Create New
+            </GradientButton>
           </div>
 
           {loading ? (
