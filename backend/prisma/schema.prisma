@@ -1,0 +1,156 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-py"
+  recursive_type_depth = -1  // Enable full recursive types (recommended for Pyright/Pylance)
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ===========================
+// USER & AUTHENTICATION
+// ===========================
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  name          String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
+  lectures      Lecture[]
+  
+  @@map("users")
+}
+
+// ===========================
+// CORE LECTURE ENTITY
+// ===========================
+
+model Lecture {
+  id                String        @id @default(uuid())
+  
+  // User Input
+  topic             String
+  targetAudience    String?       // e.g., "10th grade students"
+  desiredLength     Int           // Duration in minutes
+  visualTheme       VisualTheme   @default(MINIMALIST)
+  
+  // Generated Assets
+  videoUrl          String?       // S3/R2 URL to MP4 file
+  slidesPdfUrl      String?       // URL to PDF export
+  videoStatus       VideoStatus   @default(PENDING)
+  
+  // Processing Metadata
+  processingStartedAt DateTime?
+  processingCompletedAt DateTime?
+  errorMessage      String?       @db.Text
+  
+  // Ownership
+  userId            String
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Relations
+  slides            Slide[]
+  quizQuestions     QuizQuestion[]
+  
+  // Timestamps
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  
+  @@index([userId])
+  @@index([videoStatus])
+  @@index([createdAt])
+  @@map("lectures")
+}
+
+// ===========================
+// SLIDE STRUCTURE
+// ===========================
+
+model Slide {
+  id                String    @id @default(uuid())
+  lectureId         String
+  lecture           Lecture   @relation(fields: [lectureId], references: [id], onDelete: Cascade)
+  
+  // Slide Content
+  slideNumber       Int       // Order: 0 = title, 1-N = content slides
+  title             String
+  bulletPoints      String[]  // Array of text points
+  speakerNotes      String    @db.Text  // Voiceover script
+  
+  // Media Assets
+  imageUrl          String?   // Unsplash or generated image URL
+  imageQuery        String?   // Search keywords used
+  imageAttribution  String?   // "Photo by X on Unsplash"
+  audioUrl          String?   // Individual slide audio file URL
+  audioDuration     Float?    // Duration in seconds
+  
+  // Slide File Export
+  slideImageUrl     String?   // URL to PNG export of this slide
+  
+  // Timestamps
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  @@unique([lectureId, slideNumber])
+  @@index([lectureId])
+  @@map("slides")
+}
+
+// ===========================
+// QUIZ FEATURE
+// ===========================
+
+model QuizQuestion {
+  id                String        @id @default(uuid())
+  lectureId         String
+  lecture           Lecture       @relation(fields: [lectureId], references: [id], onDelete: Cascade)
+  
+  // Question Content
+  questionNumber    Int           // 1, 2, 3
+  questionText      String        @db.Text
+  options           String[]      // Array of 4 options
+  correctAnswer     Int           // Index of correct option (0-3)
+  explanation       String?       @db.Text
+  
+  // Timestamps
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  
+  @@unique([lectureId, questionNumber])
+  @@index([lectureId])
+  @@map("quiz_questions")
+}
+
+// ===========================
+// ENUMS
+// ===========================
+
+enum VisualTheme {
+  MINIMALIST
+  CHALKBOARD
+  CORPORATE
+  MODERN
+  GRADIENT
+  
+  @@map("visual_theme")
+}
+
+enum VideoStatus {
+  PENDING           // Initial state
+  GENERATING_CONTENT // LLM generating outline
+  CREATING_SLIDES   // python-pptx execution
+  FETCHING_IMAGES   // Unsplash API calls
+  GENERATING_AUDIO  // TTS generation
+  ASSEMBLING_VIDEO  // moviepy compilation
+  COMPLETED         // Ready to download
+  FAILED            // Error occurred
+  
+  @@map("video_status")
+}
