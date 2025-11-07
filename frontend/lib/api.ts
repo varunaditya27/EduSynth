@@ -22,6 +22,26 @@ export interface QuizQuestion {
   correctAnswer: number;
 }
 
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp?: Date;
+}
+
+export interface ChatRequest {
+  message: string;
+  conversation_history?: ChatMessage[];
+  topic_context?: string;
+  lecture_id?: string;
+}
+
+export interface ChatResponse {
+  message: string;
+  timestamp: string;
+  conversation_id?: string;
+  model: string;
+}
+
 export interface CreateLectureInput {
   topic: string;
   audience: string;
@@ -80,6 +100,95 @@ class ApiClient {
     if (!response.ok) {
       throw new Error('Failed to delete lecture');
     }
+  }
+
+  // Chatbot Methods
+  async chat(request: ChatRequest, token?: string): Promise<ChatResponse> {
+    const response = await fetch(`${this.baseUrl}/v1/chatbot/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to chat' }));
+      throw new Error(error.detail || 'Failed to chat');
+    }
+
+    return response.json();
+  }
+
+  async streamChat(
+    request: ChatRequest,
+    onChunk: (chunk: string) => void,
+    token?: string
+  ): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/v1/chatbot/chat/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to stream chat' }));
+      throw new Error(error.detail || 'Failed to stream chat');
+    }
+
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+
+    if (!reader) {
+      throw new Error('Response body is not readable');
+    }
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') {
+              return;
+            }
+            onChunk(data);
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  async quickAsk(question: string, topicContext?: string, token?: string): Promise<ChatResponse> {
+    const params = new URLSearchParams({ question });
+    if (topicContext) {
+      params.append('topic_context', topicContext);
+    }
+
+    const response = await fetch(`${this.baseUrl}/v1/chatbot/quick-ask?${params}`, {
+      method: 'POST',
+      headers: {
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to ask question' }));
+      throw new Error(error.detail || 'Failed to ask question');
+    }
+
+    return response.json();
   }
 }
 
