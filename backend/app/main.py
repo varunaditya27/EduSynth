@@ -1,162 +1,188 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from .routers import slides, recommendations, chatbot, mindmap
-from .core.config import settings
-
 from pydantic import BaseModel
-import uuid
 from pathlib import Path
-from .schema import SlidesPayload
+import uuid
 import json
+import os
+import boto3
+from botocore.client import Config as BotoConfig
+from typing import Optional
 
-from .gemini_generator import generate_slides  # ✅ Use your generator
+# Local imports
+from .core.config import settings
+from .routers import slides, recommendations, chatbot, mindmap
+from .gemini_generator import generate_slides
 from .tts_utils import synthesize_audio
 from .video_sync import assemble_video_from_slides
+from .merge_utils import merge_audio_video
 
-app = FastAPI(title="EduSynth Slide Deck Service")
+# --- Setup ---
+app = FastAPI(title="EduSynth Backend API")
+
+# Add routers (keep your friend’s routes)
+app.include_router(slides.router, prefix="/v1/slides", tags=["slides"])
+app.include_router(recommendations.router, prefix="/v1/recommendations", tags=["recommendations"])
+app.include_router(chatbot.router, prefix="/v1/chatbot", tags=["chatbot"])
+app.include_router(mindmap.router, prefix="/v1/mindmap", tags=["mindmap"])
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=settings.CORS_ORIGINS or ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(slides.router, prefix="/v1/slides", tags=["slides"])
-app.include_router(recommendations.router, prefix="/v1/recommendations", tags=["recommendations"])
-app.include_router(chatbot.router, prefix="/v1/chatbot", tags=["chatbot"])
-app.include_router(mindmap.router, prefix="/v1/mindmap", tags=["mindmap"])
-# backend/app/main.py
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-import uuid
-from pathlib import Path
-import json
-
-# Local imports
-from .tts_utils import synthesize_audio
-from .video_sync import assemble_video_from_slides
-from .gemini_utils import generate_mock_slides   # Person A will replace this with real Gemini integration
-from .schema import SlidesPayload
-from .merge_utils import merge_audio_video   # 👈 new import for post-processing merge
-
-# Initialize FastAPI app
-app = FastAPI(title="EduSynth Backend API")
 OUTDIR = Path(__file__).resolve().parent.parent / "output"
-
+OUTDIR.mkdir(parents=True, exist_ok=True)
 
 # ----------- MODELS -----------
 class GenerateRequest(BaseModel):
     topic: str
     audience: str
-    length: str
-    theme: str = "Minimalist"
+    length: str  # e.g. "10" or "10 min"
+    theme: Optional[str] = "Minimalist"
 # -------------------------------
 
 
-# ----------- ROUTES ------------
-
 @app.get("/health")
 def health():
-    """Health check endpoint"""
     return {"status": "ok"}
+
+
+def _parse_minutes(length: str) -> int:
+    """Convert string like '10 min' → int."""
+    if isinstance(length, int):
+        return length
+    if not length:
+        return 5
+    s = str(length).lower().replace("minutes", "").replace("minute", "").replace("min", "").strip()
+    try:
+        return max(1, int(float(s)))
+    except Exception:
+        return 5
+
+
+def _save_slides_json(task_id: str, slides_payload: dict):
+    slides_dir = OUTDIR / "slides"
+    slides_dir.mkdir(parents=True, exist_ok=True)
+    path = slides_dir / f"{task_id}.json"
+    path.write_text(json.dumps(slides_payload, indent=2), encoding="utf-8")
+    return path
+
+
+def _upload_file_to_r2(local_path: Path, s3_key: str) -> str:
+    """Upload final video to Cloudflare R2 (S3-compatible)."""
+    endpoint = settings.CLOUDFLARE_S3_ENDPOINT
+    bucket = settings.CLOUDFLARE_S3_BUCKET
+    access_key = getattr(settings, "CLOUDFLARE_S3_ACCESS_KEY_ID", None)
+    secret_key = getattr(settings, "CLOUDFLARE_S3_SECRET_ACCESS_KEY", None)
+
+    if not all([endpoint, bucket, access_key, secret_key]):
+        raise RuntimeError("Missing Cloudflare R2 configuration. Check .env.")
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        config=BotoConfig(signature_version="s3v4"),
+    )
+
+    s3.upload_file(str(local_path), bucket, s3_key)
+
+    direct = getattr(settings, "DIRECT_URL", None)
+    if direct:
+        return f"{direct.rstrip('/')}/{s3_key}"
+    return f"{endpoint.rstrip('/')}/{bucket}/{s3_key}"
 
 
 @app.post("/generate")
 def generate(req: GenerateRequest):
-    """
-    Creates slide JSON structure from Gemini or mock generator.
-    """
+    """Generate slides from Gemini and save JSON for assembly."""
     task_id = str(uuid.uuid4())
+    minutes = _parse_minutes(req.length)
+
     try:
-        minutes = int(req.length.replace("min", "").strip())
         _, slide_list = generate_slides(req.topic, req.audience, minutes, req.theme)
         slides_payload = {"slides": slide_list}
-        SlidesPayload.parse_obj(slides_payload)
+        saved_path = _save_slides_json(task_id, slides_payload)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Gemini generation failed: {e}")
 
     return {
         "task_id": task_id,
         "status": "slides_generated",
-        "slides": slides_payload["slides"]
+        "slides_path": str(saved_path),
+        "slides": slide_list,
     }
 
 
 @app.post("/assemble/{task_id}")
 def assemble(task_id: str):
-    """
-    Reads slides JSON → Synthesizes audio → Builds video slides → Merges final MP4.
-    """
+    """Synthesize audio + video and upload final MP4 to Cloudflare R2."""
     slides_file = OUTDIR / "slides" / f"{task_id}.json"
     if not slides_file.exists():
         raise HTTPException(status_code=404, detail="slides JSON not found for task_id")
 
     slides_payload = json.loads(slides_file.read_text(encoding="utf-8"))
     slides = slides_payload.get("slides", [])
+    if not slides:
+        raise HTTPException(status_code=400, detail="Empty slides JSON")
 
-    # Create output folder
     task_dir = OUTDIR / task_id
-    task_dir.mkdir(parents=True, exist_ok=True)
+    for sub in ["audio", "slides_images", "final"]:
+        (task_dir / sub).mkdir(parents=True, exist_ok=True)
 
     assembled_slides = []
     for s in slides:
-        idx = s["index"]
-        narration_text = s.get("narration", "")
-        target_duration = float(s.get("duration", 5.0))
+        idx = int(s.get("index", 0))
+        narration = s.get("narration", "")
+        try:
+            audio_path, actual_duration = synthesize_audio(task_id, idx, narration)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"TTS failed for slide {idx}: {e}")
 
-        # Generate ElevenLabs audio
-        audio_path, actual_duration = synthesize_audio(task_id, idx, narration_text)
-
-        # --- Auto-sync logic ---
-        display_duration = actual_duration
-        if abs(actual_duration - target_duration) > 1.5:
-            print(f"[SYNC] Slide {idx}: Adjusting {target_duration}s → {actual_duration}s")
-        # -----------------------
-
-        suggested_duration = float(s.get("duration", 5.0))
-        audio_path, actual_duration = synthesize_audio(task_id, idx, s["narration"])
         assembled_slides.append({
             "index": idx,
             "title": s.get("title"),
             "points": s.get("points"),
-            "narration": narration_text,
+            "narration": narration,
             "audio_path": audio_path,
             "audio_duration": actual_duration,
-            "display_duration": display_duration
+            "display_duration": actual_duration
         })
 
-    # Step 1: Assemble silent video with subtitles + fade transitions
-    video_path = assemble_video_from_slides(task_id, assembled_slides, theme="Minimalist")
+    try:
+        video_path = assemble_video_from_slides(task_id, assembled_slides, theme="Minimalist")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Video assembly failed: {e}")
 
-    # Step 2: Save timing info
-    timing = [
-        {
-            "slide": s["index"],
-            "audio_duration": s["audio_duration"],
-            "display_duration": s["display_duration"]
-        }
-        for s in assembled_slides
-    ]
-    (OUTDIR / task_id / "timing.json").write_text(
-        json.dumps(timing, indent=2), encoding="utf-8"
-    )
+    timing = [{"slide": s["index"], "audio_duration": s["audio_duration"]} for s in assembled_slides]
+    (task_dir / "timing.json").write_text(json.dumps(timing, indent=2), encoding="utf-8")
 
-    # Step 3: Merge audio + video into one final MP4 using ffmpeg
     try:
         final_path = merge_audio_video(task_id)
     except Exception as e:
-        print(f"[ERROR] FFmpeg merge failed: {e}")
-        final_path = video_path  # fallback
+        print(f"[WARN] Merge failed: {e}")
+        final_path = video_path
 
-    # Step 4: Return response
+    if not Path(final_path).exists():
+        raise HTTPException(status_code=500, detail="Final video file missing after merge.")
+
+    try:
+        s3_key = f"edusynth/{task_id}/{Path(final_path).name}"
+        cloud_url = _upload_file_to_r2(Path(final_path), s3_key)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload to Cloudflare failed: {e}")
+
     return {
         "task_id": task_id,
         "status": "done",
-        "video_path": video_path,
-        "final_video_path": final_path,
+        "final_cloud_url": cloud_url,
         "timing": timing
     }
-
-# -------------------------------
