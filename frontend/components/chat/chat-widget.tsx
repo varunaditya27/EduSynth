@@ -6,6 +6,7 @@ import { MessageCircle, X, Sparkles } from 'lucide-react';
 import ChatMessage from './chat-message';
 import ChatInput from './chat-input';
 import { apiClient, ChatMessage as ChatMessageType } from '@/lib/api';
+import { useAuth } from '@/contexts/auth-context';
 import { cn } from '@/lib/utils';
 
 interface ChatWidgetProps {
@@ -15,6 +16,7 @@ interface ChatWidgetProps {
 }
 
 export default function ChatWidget({ topicContext, lectureId, className }: ChatWidgetProps) {
+  const { token } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessageType[]>([
     {
@@ -65,7 +67,8 @@ export default function ChatWidget({ topicContext, lectureId, className }: ChatW
         (chunk) => {
           fullResponse += chunk;
           setStreamingMessage(fullResponse);
-        }
+        },
+        token || undefined
       );
 
       // Add complete assistant message
