@@ -1,65 +1,50 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+import HeroSection from '@/components/sections/hero-section';
+import FeatureGrid from '@/components/sections/feature-grid';
+import PrismaticBurst from '@/components/PrismaticBurst';
+import SplashCursor from '@/components/SplashCursor';
+import Navbar from '@/components/ui/navbar';
+
+export default function LandingPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div className="relative min-h-screen overflow-hidden bg-black">
+      <Navbar variant="landing" />
+      
+      {/* PrismaticBurst Background */}
+      <div className="fixed inset-0 z-0">
+        <PrismaticBurst
+          intensity={1.8}
+          speed={0.4}
+          animationType="rotate3d"
+          colors={[
+            '#4169E1', // Royal Blue
+            '#6A5ACD', // Slate Blue
+            '#8A2BE2', // Blue Violet
+            '#9370DB', // Medium Purple
+            '#BA55D3', // Medium Orchid
+            '#DA70D6', // Orchid
+            '#EE82EE', // Violet
+            '#FF69B4', // Hot Pink
+            '#FF1493', // Deep Pink
+          ]}
+          distort={3}
+          rayCount={12}
+          mixBlendMode="lighten"
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+      </div>
+
+      <SplashCursor
+        SPLAT_FORCE={7000}
+        DENSITY_DISSIPATION={4}
+        VELOCITY_DISSIPATION={2.5}
+        TRANSPARENT={true}
+      />
+      
+      <div className="relative z-10">
+        <HeroSection />
+        <FeatureGrid />
+      </div>
     </div>
   );
 }
