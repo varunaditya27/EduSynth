@@ -2,6 +2,7 @@ import LectureForm from '@/components/forms/lecture-form';
 import Iridescence from '@/components/Iridescence';
 import SplashCursor from '@/components/SplashCursor';
 import Navbar from '@/components/ui/navbar';
+import ChatWidget from '@/components/chat/chat-widget';
 
 export default function GeneratorPage() {
   return (
@@ -38,6 +39,9 @@ export default function GeneratorPage() {
           </div>
         </div>
       </div>
+
+      {/* AI Assistant Chatbot */}
+      <ChatWidget topicContext="Lecture Creation" />
     </div>
   );
 }
