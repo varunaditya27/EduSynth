@@ -1,0 +1,37 @@
+fastapi==0.104.1
+starlette==0.27.0
+uvicorn[standard]==0.24.0
+
+# Pydantic stack (needed by pydantic-settings 2.3.4)
+pydantic==2.8.2
+pydantic-settings==2.3.4
+typing-extensions==4.8.0
+
+# HTTP client stack (match httpx 0.25.x with httpcore 1.x)
+httpx==0.25.2
+httpcore==1.0.2
+anyio==3.7.1
+sniffio==1.3.0
+certifi==2023.7.22
+idna==3.4
+
+# Auth / utils
+python-jose[cryptography]==3.3.0
+python-multipart==0.0.6
+tenacity==8.2.3
+jinja2==3.1.2
+python-dotenv==1.0.0
+
+# AWS / R2
+boto3==1.29.3
+botocore==1.32.3
+jmespath==1.0.1
+s3transfer==0.7.0
+
+# DB / ORM
+psycopg==3.1.12
+prisma==0.11.0
+
+# Slides
+python-pptx==0.6.21
+pillow==10.1.0
