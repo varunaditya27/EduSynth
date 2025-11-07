@@ -1,3 +1,31 @@
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from .routers import slides, recommendations, chatbot
+from .core.config import settings
+
+from pydantic import BaseModel
+import uuid
+from pathlib import Path
+from .schema import SlidesPayload
+import json
+
+from .gemini_generator import generate_slides  # ✅ Use your generator
+from .tts_utils import synthesize_audio
+from .video_sync import assemble_video_from_slides
+
+app = FastAPI(title="EduSynth Slide Deck Service")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(slides.router, prefix="/v1/slides", tags=["slides"])
+app.include_router(recommendations.router, prefix="/v1/recommendations", tags=["recommendations"])
+app.include_router(chatbot.router, prefix="/v1/chatbot", tags=["chatbot"])
 # backend/app/main.py
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -19,7 +47,6 @@ OUTDIR = Path(__file__).resolve().parent.parent / "output"
 
 # ----------- MODELS -----------
 class GenerateRequest(BaseModel):
-    prompt: str
     topic: str
     audience: str
     length: str
@@ -42,9 +69,9 @@ def generate(req: GenerateRequest):
     """
     task_id = str(uuid.uuid4())
     try:
-        slides_payload = generate_mock_slides(
-            task_id, req.topic, req.audience, req.length, req.theme
-        )
+        minutes = int(req.length.replace("min", "").strip())
+        _, slide_list = generate_slides(req.topic, req.audience, minutes, req.theme)
+        slides_payload = {"slides": slide_list}
         SlidesPayload.parse_obj(slides_payload)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
@@ -87,6 +114,8 @@ def assemble(task_id: str):
             print(f"[SYNC] Slide {idx}: Adjusting {target_duration}s → {actual_duration}s")
         # -----------------------
 
+        suggested_duration = float(s.get("duration", 5.0))
+        audio_path, actual_duration = synthesize_audio(task_id, idx, s["narration"])
         assembled_slides.append({
             "index": idx,
             "title": s.get("title"),
