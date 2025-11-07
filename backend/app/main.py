@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .routers import slides
+from .routers import slides, recommendations
 from .core.config import settings
 
 app = FastAPI(title="EduSynth Slide Deck Service")
@@ -14,6 +14,7 @@ app.add_middleware(
 )
 
 app.include_router(slides.router, prefix="/v1/slides", tags=["slides"])
+app.include_router(recommendations.router, prefix="/v1/recommendations", tags=["recommendations"])
 # backend/app/main.py
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
