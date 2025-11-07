@@ -338,6 +338,11 @@ class ApiClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Failed to sign up' }));
+      // Handle FastAPI validation errors (422)
+      if (error.detail && Array.isArray(error.detail)) {
+        const messages = error.detail.map((err: { loc: string[]; msg: string }) => `${err.loc.join('.')}: ${err.msg}`).join(', ');
+        throw new Error(messages);
+      }
       throw new Error(error.detail || 'Failed to sign up');
     }
 
@@ -355,6 +360,11 @@ class ApiClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Invalid email or password' }));
+      // Handle FastAPI validation errors (422)
+      if (error.detail && Array.isArray(error.detail)) {
+        const messages = error.detail.map((err: { loc: string[]; msg: string }) => `${err.loc.join('.')}: ${err.msg}`).join(', ');
+        throw new Error(messages);
+      }
       throw new Error(error.detail || 'Failed to login');
     }
 
