@@ -7,6 +7,7 @@ import AudienceSelect from './audience-select';
 import DurationSlider from './duration-slider';
 import ThemeSelector from './theme-selector';
 import GradientButton from '@/components/ui/gradient-button';
+import StarBorder from '@/components/StarBorder';
 import LoadingDots from '@/components/ui/loading-dots';
 import { apiClient } from '@/lib/api';
 import { DURATION_OPTIONS } from '@/lib/constants';
@@ -93,9 +94,16 @@ export default function LectureForm() {
       )}
 
       <div className="flex justify-center pt-4">
-        <GradientButton type="submit" disabled={isSubmitting} className="px-12 py-4 text-lg">
-          {isSubmitting ? <LoadingDots /> : 'Generate Lecture'}
-        </GradientButton>
+        <StarBorder
+          as="div"
+          color="rgba(138, 43, 226, 0.9)"
+          speed="3s"
+          thickness={2}
+        >
+          <GradientButton type="submit" disabled={isSubmitting} className="px-12 py-4 text-lg">
+            {isSubmitting ? <LoadingDots /> : 'Generate Lecture'}
+          </GradientButton>
+        </StarBorder>
       </div>
     </form>
   );
