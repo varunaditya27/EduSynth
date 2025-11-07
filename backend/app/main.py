@@ -18,7 +18,7 @@ from .routers import slides, recommendations, chatbot, mindmap, auth
 from .gemini_generator import generate_slides
 from .tts_utils import synthesize_audio
 from .video_sync import assemble_video_from_slides
-from .merge_utils import merge_audio_video
+# merge_utils no longer needed - video already has audio from MoviePy
 
 # --- Setup ---
 app = FastAPI(title="EduSynth Backend API")
@@ -79,9 +79,9 @@ def _save_slides_json(task_id: str, slides_payload: dict):
 def _upload_file_to_r2(local_path: Path, s3_key: str) -> str:
     """Upload final video to Cloudflare R2 (S3-compatible)."""
     endpoint = settings.CLOUDFLARE_S3_ENDPOINT
-    bucket = settings.CLOUDFLARE_S3_BUCKET
-    access_key = getattr(settings, "CLOUDFLARE_S3_ACCESS_KEY_ID", None)
-    secret_key = getattr(settings, "CLOUDFLARE_S3_SECRET_ACCESS_KEY", None)
+    bucket = settings.CLOUDFLARE_S3_BUCKET_NAME
+    access_key = settings.CLOUDFLARE_S3_ACCESS_KEY_ID
+    secret_key = settings.CLOUDFLARE_S3_SECRET_ACCESS_KEY
 
     if not all([endpoint, bucket, access_key, secret_key]):
         raise RuntimeError("Missing Cloudflare R2 configuration. Check .env.")
@@ -155,10 +155,16 @@ def assemble_background_task(task_id: str, theme: str):
             })
 
         video_path = assemble_video_from_slides(task_id, assembled_slides, theme=theme)
-        merge_audio_video(task_id)
-
-        # Upload final to Cloudflare
-        final_path = OUTDIR / task_id / "final" / f"{task_id}_merged.mp4"
+        
+        # Video already has audio embedded - no merge needed!
+        # Copy to final directory for upload
+        final_dir = OUTDIR / task_id / "final"
+        final_dir.mkdir(parents=True, exist_ok=True)
+        final_path = final_dir / f"{task_id}_merged.mp4"
+        
+        # Copy the video with audio to final location
+        import shutil
+        shutil.copy2(video_path, final_path)
         s3_key = f"edusynth/{task_id}/{final_path.name}"
         cloud_url = _upload_file_to_r2(final_path, s3_key)
 
