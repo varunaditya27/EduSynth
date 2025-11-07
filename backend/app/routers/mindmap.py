@@ -8,8 +8,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from prisma import Prisma
 
-from app.core.auth import get_current_user
-from app.core.database import get_db
+from app.deps.auth import get_current_user
+from app.db import get_client
 from app.models.mindmap import (
     MindMapGenerateRequest,
     MindMapResponse,
@@ -36,7 +36,7 @@ router = APIRouter(prefix="/mindmap", tags=["mindmap"])
 async def generate_mindmap(
     request: MindMapGenerateRequest,
     current_user: dict = Depends(get_current_user),
-    db: Prisma = Depends(get_db)
+    db: Prisma = Depends(get_client)
 ):
     """
     Generate a mindmap for a lecture.
@@ -152,7 +152,7 @@ async def generate_mindmap(
 async def get_mindmap_by_lecture(
     lecture_id: str,
     current_user: dict = Depends(get_current_user),
-    db: Prisma = Depends(get_db)
+    db: Prisma = Depends(get_client)
 ):
     """
     Retrieve the mindmap for a specific lecture.
@@ -229,7 +229,7 @@ async def get_mindmap_by_lecture(
 async def get_mindmap_by_id(
     mindmap_id: str,
     current_user: dict = Depends(get_current_user),
-    db: Prisma = Depends(get_db)
+    db: Prisma = Depends(get_client)
 ):
     """
     Retrieve a mindmap by its unique ID.
@@ -297,7 +297,7 @@ async def get_mindmap_by_id(
 async def delete_mindmap(
     lecture_id: str,
     current_user: dict = Depends(get_current_user),
-    db: Prisma = Depends(get_db)
+    db: Prisma = Depends(get_client)
 ):
     """
     Delete a mindmap for a specific lecture.
@@ -360,7 +360,7 @@ async def delete_mindmap(
     summary="Health check",
     description="Check if the mindmap service is operational. No authentication required."
 )
-async def health_check(db: Prisma = Depends(get_db)):
+async def health_check(db: Prisma = Depends(get_client)):
     """
     Check the health status of the mindmap service.
     
