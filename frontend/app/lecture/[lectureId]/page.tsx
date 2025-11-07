@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { apiClient, Lecture } from '@/lib/api';
 import Iridescence from '@/components/Iridescence';
-import ThemeToggle from '@/components/ui/theme-toggle';
 import VideoPlayer from '@/components/sections/video-player';
 import GlassCard from '@/components/ui/glass-card';
 import GradientButton from '@/components/ui/gradient-button';
@@ -80,7 +79,6 @@ export default function LectureDetailPage() {
               <ArrowLeft className="w-5 h-5" />
               Back to Dashboard
             </Link>
-            <ThemeToggle />
           </div>
 
           <GlassCard>

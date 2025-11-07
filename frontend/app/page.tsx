@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect } from 'react';
 import HeroSection from '@/components/sections/hero-section';
 import FeatureGrid from '@/components/sections/feature-grid';
 import PrismaticBurst from '@/components/PrismaticBurst';
@@ -8,15 +7,6 @@ import SplashCursor from '@/components/SplashCursor';
 import Navbar from '@/components/ui/navbar';
 
 export default function LandingPage() {
-  useEffect(() => {
-    // Force dark theme on landing page
-    document.documentElement.classList.add('dark');
-    return () => {
-      // Optional: restore theme preference when leaving page
-      // document.documentElement.classList.remove('dark');
-    };
-  }, []);
-
   return (
     <div className="relative min-h-screen overflow-hidden bg-black">
       <Navbar variant="landing" />
