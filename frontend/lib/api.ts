@@ -103,6 +103,35 @@ export interface CreateLectureInput {
   theme: string;
 }
 
+// Authentication Interfaces
+export interface SignupRequest {
+  name: string;
+  email: string;
+  password: string;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface AuthResponse {
+  access_token: string;
+  token_type: string;
+  user: UserInfo;
+}
+
+export interface UserInfo {
+  id: string;
+  email: string;
+  name?: string;
+  created_at: string;
+}
+
+export interface GoogleAuthRequest {
+  id_token: string;
+}
+
 class ApiClient {
   private baseUrl: string;
 
@@ -294,6 +323,88 @@ class ApiClient {
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Failed to delete mindmap' }));
       throw new Error(error.detail || 'Failed to delete mindmap');
+    }
+  }
+
+  // Authentication Methods
+  async signup(data: SignupRequest): Promise<AuthResponse> {
+    const response = await fetch(`${this.baseUrl}/v1/auth/signup`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to sign up' }));
+      throw new Error(error.detail || 'Failed to sign up');
+    }
+
+    return response.json();
+  }
+
+  async login(data: LoginRequest): Promise<AuthResponse> {
+    const response = await fetch(`${this.baseUrl}/v1/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Invalid email or password' }));
+      throw new Error(error.detail || 'Failed to login');
+    }
+
+    return response.json();
+  }
+
+  async loginWithGoogle(idToken: string): Promise<AuthResponse> {
+    const response = await fetch(`${this.baseUrl}/v1/auth/google`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ id_token: idToken }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to authenticate with Google' }));
+      throw new Error(error.detail || 'Failed to authenticate with Google');
+    }
+
+    return response.json();
+  }
+
+  async getCurrentUser(token: string): Promise<UserInfo> {
+    const response = await fetch(`${this.baseUrl}/v1/auth/me`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to get user info' }));
+      throw new Error(error.detail || 'Failed to get user info');
+    }
+
+    return response.json();
+  }
+
+  async logout(token: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/v1/auth/logout`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to logout' }));
+      throw new Error(error.detail || 'Failed to logout');
     }
   }
 }
