@@ -1,0 +1,17 @@
+[
+  {
+    "slide": 0,
+    "audio_duration": 10.0,
+    "display_duration": 10.0
+  },
+  {
+    "slide": 1,
+    "audio_duration": 12.0,
+    "display_duration": 12.0
+  },
+  {
+    "slide": 2,
+    "audio_duration": 8.0,
+    "display_duration": 8.0
+  }
+]
