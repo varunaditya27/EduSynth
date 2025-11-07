@@ -100,18 +100,20 @@ def assemble_video_from_slides(task_id: str, slides: list, theme: str = "Minimal
         img_path = _make_slide_image(task_id, idx, title, points, theme=theme)
         img_clip = ImageClip(img_path).set_duration(duration)
 
-        # Subtitle text (optional)
+        # Subtitle text (optional) - improved readability and positioning
         if narration.strip():
             try:
+                # Smaller font, better wrapping, more bottom padding
                 subtitle_clip = TextClip(
                     narration,
-                    fontsize=36,
-                    color="black",
-                    font="Arial-Bold",
+                    fontsize=28,  # Reduced from 36 for better fit
+                    color="white",  # White text with black background for visibility
+                    bg_color="rgba(0,0,0,0.75)",  # Semi-transparent black background
+                    font="Arial",
                     method="caption",
-                    size=(img_clip.w - 100, None),
+                    size=(img_clip.w - 200, 160),  # More horizontal padding, fixed height
                     align="center"
-                ).set_position(("center", img_clip.h - 150)).set_duration(duration)
+                ).set_position(("center", img_clip.h - 180)).set_duration(duration)  # More bottom padding
                 img_clip = CompositeVideoClip([img_clip, subtitle_clip])
             except Exception as e:
                 print(f"[WARNING] Could not add subtitle for slide {idx}: {e}")
@@ -159,6 +161,10 @@ def assemble_video_from_slides(task_id: str, slides: list, theme: str = "Minimal
     out_path = video_dir / f"{task_id}.mp4"
     print(f"[EXPORT] Writing video to {out_path}...")
     
+    # CRITICAL: Ensure audio is present before export
+    if final_video.audio is None:
+        print("[ERROR] No audio attached to video! This should not happen.")
+    
     final_video.write_videofile(
         out_path.as_posix(),
         fps=24,
@@ -167,11 +173,13 @@ def assemble_video_from_slides(task_id: str, slides: list, theme: str = "Minimal
         temp_audiofile=str(video_dir / "temp-audio.m4a"),
         remove_temp=True,
         threads=4,
-        verbose=False,
-        logger=None
+        verbose=True,  # Changed to True for debugging audio issues
+        logger="bar",  # Show progress bar
+        audio=True,  # Explicitly enable audio
+        audio_bitrate="192k"  # Higher quality audio
     )
     
-    print(f"✅ Video created successfully with audio: {out_path}")
+    print(f"✅ Video created successfully: {out_path}")
     print(f"   Duration: {final_video.duration}s")
     print(f"   Audio present: {final_video.audio is not None}")
     
