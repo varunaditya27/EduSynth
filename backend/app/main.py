@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pathlib import Path
@@ -103,8 +103,10 @@ def _upload_file_to_r2(local_path: Path, s3_key: str) -> str:
 
 
 @app.post("/generate")
-def generate(req: GenerateRequest):
-    """Generate slides from Gemini and save JSON for assembly."""
+def generate(req: GenerateRequest, background_tasks: BackgroundTasks):
+    """
+    Generates slides via Gemini, saves JSON, and triggers background assembly.
+    """
     task_id = str(uuid.uuid4())
     minutes = _parse_minutes(req.length)
 
@@ -115,75 +117,68 @@ def generate(req: GenerateRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gemini generation failed: {e}")
 
+    # Trigger background video assembly automatically
+    background_tasks.add_task(assemble_background_task, task_id, req.theme)
+
     return {
         "task_id": task_id,
-        "status": "slides_generated",
-        "slides_path": str(saved_path),
-        "slides": slide_list,
+        "status": "processing",
+        "message": "Slides generated successfully. Video generation has started in background.",
     }
 
 
-@app.post("/assemble/{task_id}")
-def assemble(task_id: str):
-    """Synthesize audio + video and upload final MP4 to Cloudflare R2."""
-    slides_file = OUTDIR / "slides" / f"{task_id}.json"
-    if not slides_file.exists():
-        raise HTTPException(status_code=404, detail="slides JSON not found for task_id")
+def assemble_background_task(task_id: str, theme: str):
+    """
+    Internal background worker — runs assemble() logic automatically.
+    """
+    try:
+        slides_file = OUTDIR / "slides" / f"{task_id}.json"
+        slides_payload = json.loads(slides_file.read_text(encoding="utf-8"))
+        slides = slides_payload.get("slides", [])
+        task_dir = OUTDIR / task_id
+        for sub in ["audio", "slides_images", "final"]:
+            (task_dir / sub).mkdir(parents=True, exist_ok=True)
 
-    slides_payload = json.loads(slides_file.read_text(encoding="utf-8"))
-    slides = slides_payload.get("slides", [])
-    if not slides:
-        raise HTTPException(status_code=400, detail="Empty slides JSON")
-
-    task_dir = OUTDIR / task_id
-    for sub in ["audio", "slides_images", "final"]:
-        (task_dir / sub).mkdir(parents=True, exist_ok=True)
-
-    assembled_slides = []
-    for s in slides:
-        idx = int(s.get("index", 0))
-        narration = s.get("narration", "")
-        try:
+        assembled_slides = []
+        for s in slides:
+            idx = int(s.get("index", 0))
+            narration = s.get("narration", "")
             audio_path, actual_duration = synthesize_audio(task_id, idx, narration)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"TTS failed for slide {idx}: {e}")
+            assembled_slides.append({
+                "index": idx,
+                "title": s.get("title"),
+                "points": s.get("points"),
+                "narration": narration,
+                "audio_path": audio_path,
+                "audio_duration": actual_duration,
+                "display_duration": actual_duration
+            })
 
-        assembled_slides.append({
-            "index": idx,
-            "title": s.get("title"),
-            "points": s.get("points"),
-            "narration": narration,
-            "audio_path": audio_path,
-            "audio_duration": actual_duration,
-            "display_duration": actual_duration
-        })
+        video_path = assemble_video_from_slides(task_id, assembled_slides, theme=theme)
+        merge_audio_video(task_id)
 
-    try:
-        video_path = assemble_video_from_slides(task_id, assembled_slides, theme="Minimalist")
+        # Upload final to Cloudflare
+        final_path = OUTDIR / task_id / "final" / f"{task_id}_merged.mp4"
+        s3_key = f"edusynth/{task_id}/{final_path.name}"
+        cloud_url = _upload_file_to_r2(final_path, s3_key)
+
+        print(f"[✅ COMPLETED] Lecture ready: {cloud_url}")
+
+        # Save metadata
+        (OUTDIR / task_id / "meta.json").write_text(
+            json.dumps({"final_cloud_url": cloud_url}, indent=2),
+            encoding="utf-8"
+        )
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Video assembly failed: {e}")
-
-    timing = [{"slide": s["index"], "audio_duration": s["audio_duration"]} for s in assembled_slides]
-    (task_dir / "timing.json").write_text(json.dumps(timing, indent=2), encoding="utf-8")
-
+        print(f"[❌ ERROR in background task {task_id}]: {e}")
+@app.post("/assemble_background_task/{task_id}")
+def assemble_background_route(task_id: str):
+    """Manual endpoint for testing background assembly."""
     try:
-        final_path = merge_audio_video(task_id)
+        theme = "Minimalist"  # Default theme if not stored
+        assemble_background_task(task_id, theme)
+        return {"status": "ok", "task_id": task_id}
     except Exception as e:
-        print(f"[WARN] Merge failed: {e}")
-        final_path = video_path
-
-    if not Path(final_path).exists():
-        raise HTTPException(status_code=500, detail="Final video file missing after merge.")
-
-    try:
-        s3_key = f"edusynth/{task_id}/{Path(final_path).name}"
-        cloud_url = _upload_file_to_r2(Path(final_path), s3_key)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Upload to Cloudflare failed: {e}")
-
-    return {
-        "task_id": task_id,
-        "status": "done",
-        "final_cloud_url": cloud_url,
-        "timing": timing
-    }
+        raise HTTPException(status_code=500, detail=str(e))
+    

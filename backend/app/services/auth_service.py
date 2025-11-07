@@ -26,6 +26,10 @@ class AuthService:
     
     def hash_password(self, password: str) -> str:
         """Hash a password using bcrypt."""
+        # Bcrypt has a maximum password length of 72 bytes
+        # Truncate if necessary (this is safe as longer passwords don't add security with bcrypt)
+        if len(password.encode('utf-8')) > 72:
+            password = password.encode('utf-8')[:72].decode('utf-8', errors='ignore')
         return pwd_context.hash(password)
     
     def verify_password(self, plain_password: str, hashed_password: str) -> bool:
