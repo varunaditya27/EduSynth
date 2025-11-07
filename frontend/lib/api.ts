@@ -101,6 +101,135 @@ export interface CreateLectureInput {
   audience: string;
   duration: number;
   theme: string;
+  format?: 'video' | 'interactive' | 'both'; // NEW: Choose generation type
+}
+
+export interface GenerateVideoRequest {
+  topic: string;
+  audience: string;
+  length: string; // "5 min" or "5"
+  theme: string;
+}
+
+export interface GenerateVideoResponse {
+  task_id: string;
+  status: string;
+  message: string;
+}
+
+// Animation Interfaces (NEW)
+export interface AnimationElement {
+  id: string;
+  type: 'text' | 'shape' | 'image' | 'diagram' | 'arrow' | 'icon' | 'equation';
+  content: string;
+  position: { x: number; y: number };
+  style?: Record<string, any>;
+}
+
+export interface AnimationStep {
+  step_number: number;
+  description: string;
+  elements: AnimationElement[];
+  animation_type: 'fade_in' | 'slide_in' | 'scale_up' | 'draw' | 'typewriter' | 'bounce' | 'rotate' | 'morph' | 'particle' | 'highlight';
+  duration_ms: number;
+  delay_ms?: number;
+  audio_segment_start?: number;
+  audio_segment_end?: number;
+  narration_text?: string;
+}
+
+export interface InteractionPoint {
+  id: string;
+  type: 'click_to_reveal' | 'drag_and_drop' | 'hover_info' | 'input_answer' | 'multiple_choice' | 'slider_adjust' | 'simulation' | 'auto_advance';
+  prompt: string;
+  target_element_id?: string;
+  position: { x: number; y: number };
+  correct_answer?: string;
+  options?: string[];
+  success_message?: string;
+  hint?: string;
+  unlocks_step?: number;
+}
+
+export interface SlideAnimation {
+  slide_index: number;
+  title: string;
+  steps: AnimationStep[];
+  interactions: InteractionPoint[];
+  concept: string;
+  difficulty: 'easy' | 'medium' | 'hard';
+  estimated_time_seconds: number;
+  theme_effects?: Record<string, any>;
+}
+
+export interface LectureAnimations {
+  lecture_id: string;
+  topic: string;
+  audience: string;
+  theme: string;
+  slides: SlideAnimation[];
+  total_estimated_time_seconds: number;
+  interaction_count: number;
+  gamification: {
+    total_points: number;
+    badges: string[];
+    progress_tracking: boolean;
+  };
+}
+
+export interface AnimationGenerationRequest {
+  topic: string;
+  audience: string;
+  length: string;
+  theme: string;
+  interaction_level?: 'low' | 'medium' | 'high';
+  animation_style?: 'gentle' | 'dynamic' | 'professional';
+  include_simulations?: boolean;
+  include_quizzes?: boolean;
+}
+
+export interface AnimationGenerationResponse {
+  task_id: string;
+  status: string;
+  message: string;
+  estimated_time_seconds: number;
+  interaction_count: number;
+}
+
+export interface AnimationMetadata {
+  task_id: string;
+  topic: string;
+  audience: string;
+  theme: string;
+  slide_count: number;
+  interaction_count: number;
+  estimated_time_seconds: number;
+  gamification: Record<string, any>;
+  slides_overview: Array<{
+    index: number;
+    title: string;
+    concept: string;
+    steps: number;
+    interactions: number;
+    difficulty: string;
+  }>;
+}
+
+export interface ProgressTrackingRequest {
+  completed_slides: number[];
+  score?: number;
+}
+
+export interface ProgressTrackingResponse {
+  progress_percent: number;
+  completed_slides: number;
+  total_slides: number;
+  remaining_slides: number;
+  estimated_time_remaining: number;
+  points_earned: number;
+  points_possible: number;
+  next_slide_index: number;
+  completion_status: string;
 }
 
 // Authentication Interfaces
@@ -150,6 +279,112 @@ class ApiClient {
 
     if (!response.ok) {
       throw new Error('Failed to create lecture');
+    }
+
+    return response.json();
+  }
+
+  // Video Generation Methods (NEW)
+  async generateVideo(data: GenerateVideoRequest): Promise<GenerateVideoResponse> {
+    const response = await fetch(`${this.baseUrl}/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to generate video' }));
+      throw new Error(error.detail || 'Failed to generate video');
+    }
+
+    return response.json();
+  }
+
+  async getVideoStatus(taskId: string): Promise<{ status: string; progress?: number; videoUrl?: string; errorMessage?: string }> {
+    // This endpoint needs to be added to the backend
+    const response = await fetch(`${this.baseUrl}/status/${taskId}`);
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch video status');
+    }
+
+    return response.json();
+  }
+
+  // Animation Generation Methods (NEW)
+  async generateAnimations(request: AnimationGenerationRequest): Promise<AnimationGenerationResponse> {
+    const response = await fetch(`${this.baseUrl}/v1/animations/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to generate animations' }));
+      throw new Error(error.detail || 'Failed to generate animations');
+    }
+
+    return response.json();
+  }
+
+  async getAnimations(taskId: string): Promise<LectureAnimations> {
+    const response = await fetch(`${this.baseUrl}/v1/animations/${taskId}`);
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error('Animations not found');
+      }
+      const error = await response.json().catch(() => ({ detail: 'Failed to fetch animations' }));
+      throw new Error(error.detail || 'Failed to fetch animations');
+    }
+
+    return response.json();
+  }
+
+  async getSlideAnimation(taskId: string, slideIndex: number): Promise<{ slide: SlideAnimation; total_slides: number; current_index: number }> {
+    const response = await fetch(`${this.baseUrl}/v1/animations/${taskId}/slides/${slideIndex}`);
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error('Slide not found');
+      }
+      const error = await response.json().catch(() => ({ detail: 'Failed to fetch slide' }));
+      throw new Error(error.detail || 'Failed to fetch slide');
+    }
+
+    return response.json();
+  }
+
+  async getAnimationMetadata(taskId: string): Promise<AnimationMetadata> {
+    const response = await fetch(`${this.baseUrl}/v1/animations/${taskId}/metadata`);
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error('Animation metadata not found');
+      }
+      const error = await response.json().catch(() => ({ detail: 'Failed to fetch metadata' }));
+      throw new Error(error.detail || 'Failed to fetch metadata');
+    }
+
+    return response.json();
+  }
+
+  async trackAnimationProgress(taskId: string, request: ProgressTrackingRequest): Promise<ProgressTrackingResponse> {
+    const response = await fetch(`${this.baseUrl}/v1/animations/${taskId}/progress`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to track progress' }));
+      throw new Error(error.detail || 'Failed to track progress');
     }
 
     return response.json();
