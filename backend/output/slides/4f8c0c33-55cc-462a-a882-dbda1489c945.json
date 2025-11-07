@@ -1,0 +1,34 @@
+{
+  "slides": [
+    {
+      "index": 0,
+      "title": "Intro: Photosynthesis",
+      "points": [
+        "What is Photosynthesis?",
+        "Why Photosynthesis matters for 10th-grade"
+      ],
+      "narration": "Hello! In this lesson we will explore Photosynthesis and why it's important for 10th-grade.",
+      "duration": 10.0
+    },
+    {
+      "index": 1,
+      "title": "Core Concepts of Photosynthesis",
+      "points": [
+        "Key concept 1",
+        "Key concept 2"
+      ],
+      "narration": "Now let's break down the core ideas behind Photosynthesis.",
+      "duration": 12.0
+    },
+    {
+      "index": 2,
+      "title": "Summary & Next Steps",
+      "points": [
+        "Recap main points",
+        "Suggested practice / quiz"
+      ],
+      "narration": "To summarize, we've covered the essentials of Photosynthesis. Try a short exercise to solidify learning.",
+      "duration": 8.0
+    }
+  ]
+}
