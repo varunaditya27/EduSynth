@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     UNSPLASH_ACCESS_KEY: str
     UNSPLASH_SECRET_KEY: str
 
+    # Gemini API
+    GEMINI_API_KEY: str
+
+    # Groq API
+    GROQ_API_KEY: str
+
     # CORS
     CORS_ORIGINS: List[str] = Field(default_factory=list)
 

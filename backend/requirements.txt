@@ -32,6 +32,12 @@ s3transfer==0.7.0
 psycopg==3.1.12
 prisma==0.11.0
 
+# Google Generative AI (Gemini)
+google-generativeai==0.8.3
+
+# Groq API (Llama)
+groq==0.11.0
+
 # Slides
 python-pptx==0.6.21
 pillow==10.1.0
