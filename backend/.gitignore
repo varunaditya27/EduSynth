@@ -5,3 +5,9 @@ venv
 
 __pycache__/
 *.pyc
+
+# Generated outputs
+scripts/artifacts/
+*.pptx
+*.pdf
+*.png
