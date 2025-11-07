@@ -10,6 +10,7 @@ import GradientButton from '@/components/ui/gradient-button';
 import StatusBadge from '@/components/ui/status-badge';
 import QuizPreviewModal from '@/components/modals/quiz-preview-modal';
 import LoadingDots from '@/components/ui/loading-dots';
+import ChatWidget from '@/components/chat/chat-widget';
 import { ArrowLeft, Download, FileText, PlayCircle } from 'lucide-react';
 import Link from 'next/link';
 
@@ -186,6 +187,9 @@ export default function LectureDetailPage() {
           questions={lecture.quizQuestions}
         />
       )}
+
+      {/* AI Assistant Chatbot */}
+      <ChatWidget topicContext={lecture.topic} lectureId={lecture.id} />
     </div>
   );
 }

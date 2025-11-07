@@ -1,59 +1,37 @@
-# backend/app/clients/unsplash.py
-
-from typing import Optional, Dict
-import httpx
-
+"""
+Unsplash API client for fetching images.
+"""
+from typing import Optional
 from app.core.config import settings
 
 
 class UnsplashClient:
-    """
-    Client for interacting with the Unsplash API to search and retrieve images.
-    """
+    """Client for searching and downloading images from Unsplash."""
     
     def __init__(self):
-        """Initialize Unsplash client with API credentials from settings."""
+        """Initialize Unsplash client with API credentials."""
         self.access_key = settings.UNSPLASH_ACCESS_KEY
         self.secret_key = settings.UNSPLASH_SECRET_KEY
-        self.base_url = "https://api.unsplash.com"
     
-    async def search_image(self, query: str) -> Optional[Dict[str, str]]:
+    async def search_image(self, query: str) -> Optional[dict]:
         """
-        Search for an image on Unsplash based on a query.
+        Search for an image on Unsplash.
         
         Args:
             query: Search query string
             
         Returns:
-            Dictionary with image metadata:
-            {
-                "url": str,        # Direct URL to the image
-                "author": str,     # Photographer name
-                "source": "unsplash"
-            }
-            Returns None if no suitable image found or request fails.
+            Dictionary with keys: url, author, source
+            Returns None if no suitable image found
+            
+        TODO: Implement actual Unsplash API search
         """
-        # TODO: Implement actual Unsplash API search
-        # async with httpx.AsyncClient() as client:
-        #     response = await client.get(
-        #         f"{self.base_url}/search/photos",
-        #         params={"query": query, "per_page": 1},
-        #         headers={"Authorization": f"Client-ID {self.access_key}"}
-        #     )
-        #     if response.status_code == 200:
-        #         data = response.json()
-        #         if data["results"]:
-        #             photo = data["results"][0]
-        #             return {
-        #                 "url": photo["urls"]["regular"],
-        #                 "author": photo["user"]["name"],
-        #                 "source": "unsplash"
-        #             }
-        # return None
-        
-        # Placeholder return
+        # TODO: Implement
+        # - Use httpx to call Unsplash API
+        # - Search for relevant image with query
+        # - Return first suitable result with attribution
         return {
-            "url": f"https://source.unsplash.com/800x600/?{query}",
+            "url": f"https://placeholder.unsplash.com/{query}",
             "author": "Placeholder Author",
-            "source": "unsplash"
+            "source": "unsplash",
         }
