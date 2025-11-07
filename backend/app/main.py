@@ -90,4 +90,3 @@ def assemble(task_id: str):
         "video_path": video_path,
         "timing": timing
     }
-
