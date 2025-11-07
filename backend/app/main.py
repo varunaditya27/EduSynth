@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from .routers import slides, recommendations, chatbot
+from .routers import slides, recommendations, chatbot, mindmap
 from .core.config import settings
 
 from pydantic import BaseModel
@@ -26,6 +26,7 @@ app.add_middleware(
 app.include_router(slides.router, prefix="/v1/slides", tags=["slides"])
 app.include_router(recommendations.router, prefix="/v1/recommendations", tags=["recommendations"])
 app.include_router(chatbot.router, prefix="/v1/chatbot", tags=["chatbot"])
+app.include_router(mindmap.router, prefix="/v1/mindmap", tags=["mindmap"])
 # backend/app/main.py
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
