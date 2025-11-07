@@ -1,129 +1,179 @@
-# backend/app/services/slides/generator.py
-
-from typing import Dict, Optional
+"""
+Slide deck generation service - DB operations only (no generation logic yet).
+"""
+from typing import Optional
 from datetime import datetime
+from fastapi import HTTPException
 
-from app.models.slides import GenerateSlidesRequest
 from app.db import get_client
+from app.models.slides import GenerateSlidesRequest
 
 
 async def enqueue_generation_job(
     user_id: str,
-    req: GenerateSlidesRequest
+    request: GenerateSlidesRequest,
 ) -> str:
     """
-    Create a new generation job in the database and return its ID.
-    Job is created with QUEUED status and will be processed asynchronously.
+    Create a new generation job in the database.
     
     Args:
-        user_id: ID of the user requesting generation
-        req: Generation request parameters
+        user_id: Authenticated user ID
+        request: Slide deck configuration
         
     Returns:
-        job_id: UUID of the created job
+        Created job ID
     """
-    db = get_client()
+    db = await get_client()
     
-    # Create generation job record
+    # Ensure user exists (upsert with placeholder email if needed)
+    await db.user.upsert(
+        where={"id": user_id},
+        data={
+            "create": {
+                "id": user_id,
+                "email": f"{user_id}@placeholder.local",
+            },
+            "update": {},
+        },
+    )
+    
+    # Create generation job with QUEUED status
     job = await db.generationjob.create(
         data={
-            "user_id": user_id,
+            "userId": user_id,
             "status": "QUEUED",
-            "progress_pct": 0
+            "progressPct": 0,
         }
     )
     
-    # TODO: Enqueue actual background job for processing
-    # - Generate outline based on topic, audience, duration
-    # - For each slide, search Unsplash for relevant image
-    # - Assemble PPTX/PDF with python-pptx or similar
-    # - Upload final file to R2
-    # - Update job status to COMPLETED with deck_id
+    # TODO: Trigger actual generation workflow (background task, queue, etc.)
     
     return job.id
 
 
-async def get_job_status(
-    user_id: str,
-    job_id: str
-) -> Optional[Dict]:
+async def get_job_status(user_id: str, job_id: str) -> dict:
     """
-    Retrieve the current status of a generation job.
+    Retrieve the status of a generation job.
     
     Args:
-        user_id: ID of the user (for authorization)
-        job_id: ID of the job to check
+        user_id: Authenticated user ID
+        job_id: Job identifier
         
     Returns:
-        Dictionary with job status fields, or None if not found/unauthorized
+        Dictionary matching JobStatusResponse shape
+        
+    Raises:
+        HTTPException: 404 if job not found or doesn't belong to user
     """
-    db = get_client()
+    db = await get_client()
     
-    # Fetch job scoped to user
+    # Fetch job scoped by user_id
     job = await db.generationjob.find_first(
         where={
             "id": job_id,
-            "user_id": user_id
+            "userId": user_id,
         }
     )
     
     if not job:
-        return None
+        raise HTTPException(status_code=404, detail="Job not found")
     
-    # Format error message if present
-    error_msg = None
-    if job.error_code or job.error_message:
-        error_msg = f"{job.error_code}: {job.error_message}" if job.error_code else job.error_message
+    # Map database status to API status
+    # DB statuses: QUEUED, PROCESSING, COMPLETED, FAILED
+    # API statuses: QUEUED, GENERATING, UPLOADING, READY, FAILED
+    status_map = {
+        "QUEUED": "QUEUED",
+        "PROCESSING": "GENERATING",
+        "COMPLETED": "READY",
+        "FAILED": "FAILED",
+    }
+    
+    api_status = status_map.get(job.status, "QUEUED")
     
     return {
         "job_id": job.id,
-        "status": job.status,
-        "progress": job.progress_pct,
-        "deck_id": job.deck_id,
-        "error": error_msg
+        "status": api_status,
+        "progress": job.progressPct,
+        "deck_id": job.deckId,
+        "error": job.errorMessage if job.status == "FAILED" else None,
     }
 
-
-async def get_deck(
-    user_id: str,
-    deck_id: str
-) -> Optional[Dict]:
+async def get_deck(user_id: str, deck_id: str) -> dict:
     """
-    Retrieve metadata for a specific slide deck.
+    Get information about a generated slide deck.
     
     Args:
-        user_id: ID of the user (for authorization)
-        deck_id: ID of the deck to retrieve
+        user_id: Authenticated user ID
+        deck_id: Deck identifier
         
     Returns:
-        Dictionary with deck metadata fields, or None if not found/unauthorized
+        Dictionary matching DeckResponse shape
+        
+    Raises:
+        HTTPException: 404 if deck not found or doesn't belong to user
     """
-    db = get_client()
+    db = await get_client()
     
-    # Fetch deck scoped to user
+    # Fetch deck scoped by user_id
     deck = await db.slidedeck.find_first(
         where={
             "id": deck_id,
-            "user_id": user_id
+            "userId": user_id,
         }
     )
     
     if not deck:
-        return None
-    
-    # TODO: Generate presigned URLs for download and thumbnail
-    # from app.clients.r2 import R2Client
-    # r2 = R2Client()
-    # download_url = await r2.generate_presigned_url(deck.r2_key)
-    # thumbnail_url = await r2.generate_presigned_url(deck.cover_thumb_r2_key) if deck.cover_thumb_r2_key else None
+        raise HTTPException(status_code=404, detail="Deck not found")
     
     return {
         "deck_id": deck.id,
         "topic": deck.topic,
         "theme": deck.theme,
-        "slide_count": deck.slide_count,
+        "slide_count": len(deck.slides),
         "format": deck.format,
-        "download_url": None,  # TODO: Generate from R2
-        "thumbnail_url": None,  # TODO: Generate from R2
-        "created_at": deck.created_at
+        "download_url": deck.download_url,
+        "thumbnail_url": deck.thumbnail_url,
+        "created_at": deck.created_at,
+    }
+
+
+async def get_deck(user_id: str, deck_id: str) -> dict:
+    """
+    Retrieve a slide deck's metadata.
+    
+    Args:
+        user_id: Authenticated user ID
+        deck_id: Deck identifier
+        
+    Returns:
+        Dictionary matching DeckResponse shape
+        
+    Raises:
+        HTTPException: 404 if deck not found or doesn't belong to user
+    """
+    db = await get_client()
+    
+    # Fetch deck scoped by user_id
+    deck = await db.slidedeck.find_first(
+        where={
+            "id": deck_id,
+            "userId": user_id,
+        }
+    )
+    
+    if not deck:
+        raise HTTPException(status_code=404, detail="Deck not found")
+    
+    # TODO: Generate actual download URLs using R2 presigned URLs
+    # TODO: Generate thumbnail URLs if cover_thumb_r2_key exists
+    
+    return {
+        "deck_id": deck.id,
+        "topic": deck.topic,
+        "theme": deck.theme,
+        "slide_count": deck.slideCount,
+        "format": deck.format,
+        "download_url": None,  # TODO: Generate presigned URL
+        "thumbnail_url": None,  # TODO: Generate thumbnail URL
+        "created_at": deck.createdAt,
     }
