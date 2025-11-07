@@ -1,0 +1,3 @@
+file 'D:/D3/EduSynth/backend/output/4f8c0c33-55cc-462a-a882-dbda1489c945/audio/slide_0.mp3'
+file 'D:/D3/EduSynth/backend/output/4f8c0c33-55cc-462a-a882-dbda1489c945/audio/slide_1.mp3'
+file 'D:/D3/EduSynth/backend/output/4f8c0c33-55cc-462a-a882-dbda1489c945/audio/slide_2.mp3'
