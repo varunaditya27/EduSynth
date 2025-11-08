@@ -56,3 +56,31 @@ async def get_current_user(authorization: Optional[str] = Header(default=None)) 
 
     email = payload.get("email")
     return CurrentUser(user_id=str(user_id), email=email)
+
+
+async def get_current_user_optional(authorization: Optional[str] = Header(default=None)) -> Optional[CurrentUser]:
+    """
+    Optional auth dependency - returns None if no valid auth provided.
+    Useful for endpoints that work with or without authentication.
+    """
+    # Local dev bypass
+    if _dev_bypass_enabled():
+        return CurrentUser(user_id="dev-user", email="dev@local")
+
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+
+    token = authorization.split(" ", 1)[1].strip()
+    secret = settings.SUPABASE_JWT_SECRET
+    if not secret:
+        return None
+
+    try:
+        payload = jwt.decode(token, secret, algorithms=["HS256"])
+        user_id = (payload.get("sub") or payload.get("uid"))
+        if not user_id:
+            return None
+        email = payload.get("email")
+        return CurrentUser(user_id=str(user_id), email=email)
+    except JWTError:
+        return None

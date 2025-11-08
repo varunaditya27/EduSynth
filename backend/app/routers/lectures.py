@@ -3,13 +3,28 @@ Lectures Router - CRUD operations for lectures
 """
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 from datetime import datetime
 from prisma import Prisma
 from prisma.enums import VideoStatus, VisualTheme
 from app.db import get_client
 
 router = APIRouter()
+
+# Helper function to map VideoStatus enum to frontend format
+def map_video_status(status) -> str:
+    """Map VideoStatus enum to frontend-expected format"""
+    status_map = {
+        VideoStatus.PENDING: "pending",
+        VideoStatus.GENERATING_CONTENT: "processing",
+        VideoStatus.CREATING_SLIDES: "processing",
+        VideoStatus.FETCHING_IMAGES: "processing",
+        VideoStatus.GENERATING_AUDIO: "processing",
+        VideoStatus.ASSEMBLING_VIDEO: "processing",
+        VideoStatus.COMPLETED: "completed",
+        VideoStatus.FAILED: "failed"
+    }
+    return status_map.get(status, "pending")
 
 # Pydantic models for request/response
 class CreateLectureRequest(BaseModel):
@@ -48,8 +63,7 @@ class LectureResponse(BaseModel):
     createdAt: datetime
     updatedAt: datetime
     
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 @router.post("", response_model=LectureResponse)
 async def create_lecture(request: CreateLectureRequest, db: Prisma = Depends(get_client)):
@@ -79,7 +93,30 @@ async def get_lectures(userId: Optional[str] = None, db: Prisma = Depends(get_cl
             where=where,
             order={"createdAt": "desc"}
         )
-        return lectures
+        
+        # Transform lectures to frontend format
+        return [
+            LectureResponse(
+                id=lecture.id,
+                topic=lecture.topic,
+                targetAudience=lecture.targetAudience,
+                desiredLength=lecture.desiredLength,
+                visualTheme=str(lecture.visualTheme),
+                videoUrl=lecture.videoUrl,
+                slidesPdfUrl=lecture.slidesPdfUrl,
+                videoStatus=map_video_status(lecture.videoStatus),
+                animationTaskId=lecture.animationTaskId,
+                animationStatus=map_video_status(lecture.animationStatus) if lecture.animationStatus else None,
+                hasInteractive=lecture.hasInteractive,
+                processingStartedAt=lecture.processingStartedAt,
+                processingCompletedAt=lecture.processingCompletedAt,
+                errorMessage=lecture.errorMessage,
+                userId=lecture.userId,
+                createdAt=lecture.createdAt,
+                updatedAt=lecture.updatedAt
+            )
+            for lecture in lectures
+        ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch lectures: {str(e)}")
 
@@ -90,7 +127,27 @@ async def get_lecture(lecture_id: str, db: Prisma = Depends(get_client)):
         lecture = await db.lecture.find_unique(where={"id": lecture_id})
         if not lecture:
             raise HTTPException(status_code=404, detail="Lecture not found")
-        return lecture
+        
+        # Transform to frontend format
+        return LectureResponse(
+            id=lecture.id,
+            topic=lecture.topic,
+            targetAudience=lecture.targetAudience,
+            desiredLength=lecture.desiredLength,
+            visualTheme=str(lecture.visualTheme),
+            videoUrl=lecture.videoUrl,
+            slidesPdfUrl=lecture.slidesPdfUrl,
+            videoStatus=map_video_status(lecture.videoStatus),
+            animationTaskId=lecture.animationTaskId,
+            animationStatus=map_video_status(lecture.animationStatus) if lecture.animationStatus else None,
+            hasInteractive=lecture.hasInteractive,
+            processingStartedAt=lecture.processingStartedAt,
+            processingCompletedAt=lecture.processingCompletedAt,
+            errorMessage=lecture.errorMessage,
+            userId=lecture.userId,
+            createdAt=lecture.createdAt,
+            updatedAt=lecture.updatedAt
+        )
     except HTTPException:
         raise
     except Exception as e:
