@@ -110,7 +110,7 @@ export default function LectureDetailPage() {
                 </div>
               )}
 
-              <div className="grid md:grid-cols-2 gap-4">
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {lecture.videoUrl && (
                   <GradientButton
                     onClick={() => {
@@ -139,6 +139,14 @@ export default function LectureDetailPage() {
                     Download Slides
                   </GradientButton>
                 )}
+
+                <GradientButton
+                  variant="secondary"
+                  onClick={() => router.push(`/lecture/${lectureId}/interactive`)}
+                >
+                  <PlayCircle className="w-5 h-5 mr-2" />
+                  Interactive Version
+                </GradientButton>
               </div>
             </div>
           </GlassCard>

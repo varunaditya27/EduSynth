@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Brain, Loader2, Network } from 'lucide-react';
 import MindmapViewer from './mindmap-viewer';
@@ -24,31 +24,40 @@ export default function MindmapWidget({
   const [mindmap, setMindmap] = useState<MindMapResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasExistingMindmap, setHasExistingMindmap] = useState<boolean | null>(null);
+
+  // Check if mindmap exists on component mount
+  useEffect(() => {
+    const checkExistingMindmap = async () => {
+      try {
+        const existing = await apiClient.getMindmapByLecture(lectureId);
+        setMindmap(existing);
+        setHasExistingMindmap(true);
+      } catch (err: unknown) {
+        if ((err as Error).message === 'MINDMAP_NOT_FOUND') {
+          setHasExistingMindmap(false);
+        }
+      }
+    };
+
+    if (hasExistingMindmap === null) {
+      checkExistingMindmap();
+    }
+  }, [lectureId, hasExistingMindmap]);
 
   const handleGenerateMindmap = async (regenerate = false) => {
     setLoading(true);
     setError(null);
 
     try {
-      // Try to get existing mindmap first
-      if (!regenerate) {
-        try {
-          const existing = await apiClient.getMindmapByLecture(lectureId);
-          setMindmap(existing);
-          setIsOpen(true);
-          if (onMindmapGenerated) {
-            onMindmapGenerated(existing);
-          }
-          return;
-        } catch (err: unknown) {
-          // If not found, generate new one
-          if ((err as Error).message !== 'MINDMAP_NOT_FOUND') {
-            throw err;
-          }
-        }
+      // If not regenerating and we already have a mindmap in state, just open it
+      if (!regenerate && mindmap) {
+        setIsOpen(true);
+        setLoading(false);
+        return;
       }
 
-      // Generate new mindmap
+      // Call the generate endpoint directly
       const response = await apiClient.generateMindmap({
         lecture_id: lectureId,
         regenerate,
@@ -57,6 +66,7 @@ export default function MindmapWidget({
       });
 
       setMindmap(response);
+      setHasExistingMindmap(true);
       setIsOpen(true);
 
       if (onMindmapGenerated) {
@@ -64,13 +74,32 @@ export default function MindmapWidget({
       }
     } catch (err: unknown) {
       console.error('Failed to generate mindmap:', err);
-      setError((err as Error).message || 'Failed to generate mindmap');
+      const errorMessage = (err as Error).message || 'Failed to generate mindmap';
+      
+      // Handle case where mindmap already exists (409 Conflict)
+      if (errorMessage.includes('already exists')) {
+        try {
+          // Fetch the existing mindmap
+          const existing = await apiClient.getMindmapByLecture(lectureId);
+          setMindmap(existing);
+          setHasExistingMindmap(true);
+          setIsOpen(true);
+          if (onMindmapGenerated) {
+            onMindmapGenerated(existing);
+          }
+        } catch {
+          setError('Mindmap exists but could not be loaded');
+        }
+      } else {
+        setError(errorMessage);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const handleOpenMindmap = async () => {
+    // If already loaded in state, just open
     if (mindmap) {
       setIsOpen(true);
       return;
@@ -83,14 +112,13 @@ export default function MindmapWidget({
     try {
       const existing = await apiClient.getMindmapByLecture(lectureId);
       setMindmap(existing);
+      setHasExistingMindmap(true);
       setIsOpen(true);
-    } catch (err: unknown) {
-      if ((err as Error).message === 'MINDMAP_NOT_FOUND') {
-        // No mindmap exists, generate one
-        await handleGenerateMindmap(false);
-      } else {
-        setError((err as Error).message || 'Failed to load mindmap');
+      if (onMindmapGenerated) {
+        onMindmapGenerated(existing);
       }
+    } catch (err: unknown) {
+      setError((err as Error).message || 'Failed to load mindmap');
     } finally {
       setLoading(false);
     }
@@ -100,19 +128,19 @@ export default function MindmapWidget({
     <>
       {/* Trigger Button */}
       <GradientButton
-        onClick={handleOpenMindmap}
+        onClick={hasExistingMindmap ? handleOpenMindmap : () => handleGenerateMindmap(false)}
         disabled={loading}
         className={className}
       >
         {loading ? (
           <>
             <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-            Loading Mindmap...
+            {hasExistingMindmap ? 'Loading...' : 'Generating...'}
           </>
         ) : (
           <>
             <Network className="w-5 h-5 mr-2" />
-            {mindmap ? 'View Mindmap' : 'Generate Mindmap'}
+            {hasExistingMindmap ? 'View Mindmap' : 'Generate Mindmap'}
           </>
         )}
       </GradientButton>

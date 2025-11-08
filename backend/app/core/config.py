@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     CLOUDFLARE_S3_ACCESS_KEY_ID: str  # Matches .env exactly
     CLOUDFLARE_S3_SECRET_ACCESS_KEY: str  # Matches .env exactly
     CLOUDFLARE_S3_BUCKET_NAME: str  # Matches .env exactly
+    CLOUDFLARE_R2_PUBLIC_URL: Optional[str] = None  # Public URL for R2 bucket
     CLOUDFLARE_API_TOKEN_VALUE: Optional[str] = None
 
     # Unsplash
