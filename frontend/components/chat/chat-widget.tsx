@@ -18,19 +18,75 @@ interface ChatWidgetProps {
 export default function ChatWidget({ topicContext, lectureId, className }: ChatWidgetProps) {
   const { token } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState<ChatMessageType[]>([
-    {
-      role: 'assistant',
-      content: topicContext
-        ? `Hi! I'm here to help you with "${topicContext}". Ask me anything about this topic, or how to make your lecture more engaging!`
-        : "Hi! I'm your AI assistant. Ask me anything about creating lectures, explaining concepts, or getting educational insights!",
-      timestamp: new Date(),
-    },
-  ]);
+  const chatPanelRef = useRef<HTMLDivElement>(null);
+  
+  // Initialize messages with persisted history or default message
+  const [messages, setMessages] = useState<ChatMessageType[]>(() => {
+    // Try to load persisted messages for this lecture/topic
+    if (typeof window !== 'undefined') {
+      const storageKey = `chat_history_${lectureId || topicContext || 'default'}`;
+      const stored = localStorage.getItem(storageKey);
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          return parsed.map((msg: ChatMessageType) => ({
+            ...msg,
+            timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date(),
+          }));
+        } catch {
+          // Ignore parsing errors
+        }
+      }
+    }
+    
+    // Default welcome message
+    return [
+      {
+        role: 'assistant',
+        content: topicContext
+          ? `Hi! I'm here to help you with **"${topicContext}"**. I have access to the full lecture content including:\n\n- All slide titles and key points\n- Narration scripts\n- Topic structure\n\nAsk me anything about this topic, how to improve your lecture, or request specific explanations!`
+          : "Hi! I'm your AI assistant. Ask me anything about creating lectures, explaining concepts, or getting educational insights!",
+        timestamp: new Date(),
+      } as ChatMessageType,
+    ];
+  });
+  
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingMessage, setStreamingMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  
+  // Persist messages to localStorage whenever they change
+  useEffect(() => {
+    if (typeof window !== 'undefined' && messages.length > 1) {
+      const storageKey = `chat_history_${lectureId || topicContext || 'default'}`;
+      localStorage.setItem(storageKey, JSON.stringify(messages));
+    }
+  }, [messages, lectureId, topicContext]);
+  
+  // Handle click outside to close chat
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        isOpen &&
+        chatPanelRef.current &&
+        !chatPanelRef.current.contains(event.target as Node)
+      ) {
+        setIsOpen(false);
+      }
+    };
+    
+    if (isOpen) {
+      // Add small delay to prevent immediate close on open
+      setTimeout(() => {
+        document.addEventListener('mousedown', handleClickOutside);
+      }, 100);
+    }
+    
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -116,6 +172,7 @@ export default function ChatWidget({ topicContext, lectureId, className }: ChatW
       <AnimatePresence>
         {isOpen && (
           <motion.div
+            ref={chatPanelRef}
             initial={{ x: '100%', opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: '100%', opacity: 0 }}
