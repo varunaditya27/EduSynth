@@ -1,9 +1,13 @@
 'use client';
 
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import SpotlightCard from '@/components/SpotlightCard';
 import StarBorder from '@/components/StarBorder';
-import { Sparkles, Video, ClipboardList, Zap, Palette, Download } from 'lucide-react';
+import AuthModal from '@/components/modals/auth-modal';
+import { Sparkles, Video, ClipboardList, Zap, Palette, Download, Lock } from 'lucide-react';
+import { useAuth } from '@/contexts/auth-context';
 
 const features = [
   {
@@ -51,6 +55,18 @@ const features = [
 ];
 
 export default function FeatureGrid() {
+  const router = useRouter();
+  const { isAuthenticated } = useAuth();
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+
+  const handleStartCreating = () => {
+    if (isAuthenticated) {
+      router.push('/generator');
+    } else {
+      setAuthModalOpen(true);
+    }
+  };
+
   return (
     <section id="features" className="py-20 px-4 relative">
       {/* Subtle gradient overlay */}
@@ -133,24 +149,45 @@ export default function FeatureGrid() {
             Ready to revolutionize your content creation?
           </p>
           <StarBorder
-            as="a"
-            href="/generator"
-            color="rgba(255, 105, 180, 0.8)"
+            as="button"
+            onClick={handleStartCreating}
+            color={isAuthenticated ? "rgba(255, 105, 180, 0.8)" : "rgba(156, 163, 175, 0.5)"}
             speed="3s"
             thickness={2}
-            className="inline-block cursor-pointer"
+            className={`inline-block cursor-pointer ${!isAuthenticated ? 'opacity-75' : ''}`}
           >
             <motion.div
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
+              whileHover={{ scale: isAuthenticated ? 1.05 : 1.02 }}
+              whileTap={{ scale: isAuthenticated ? 0.95 : 0.98 }}
               className="px-8 py-4 rounded-lg font-semibold text-white bg-linear-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 transition-all shadow-lg shadow-purple-500/25 flex items-center gap-2"
             >
+              {!isAuthenticated && <Lock className="w-4 h-4" />}
               Start Creating Now
               <Sparkles className="w-5 h-5" />
             </motion.div>
           </StarBorder>
+          
+          {!isAuthenticated && (
+            <motion.p
+              initial={{ opacity: 0 }}
+              whileInView={{ opacity: 1 }}
+              viewport={{ once: true }}
+              transition={{ delay: 0.8 }}
+              className="text-sm text-white/50 mt-3"
+            >
+              <Lock className="w-3 h-3 inline mr-1" />
+              Sign in to start creating professional lectures
+            </motion.p>
+          )}
         </motion.div>
       </div>
+
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        defaultMode="signup"
+      />
     </section>
   );
 }
