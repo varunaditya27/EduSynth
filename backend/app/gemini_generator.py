@@ -58,23 +58,33 @@ Example JSON:
 }}
 """
 
-# ✅ FIXED FUNCTION HERE
 def _call_gemini(prompt: str) -> str:
     model = genai.GenerativeModel(MODEL_NAME, generation_config=GENERATION_CONFIG)
     try:
-        # Structured input as required in latest Gemini SDK
+        # ✅ New SDK input format
         response = model.generate_content(
-            contents=[{"role": "user", "parts": [{"text": prompt}]}]
+            contents=[
+                {
+                    "role": "user",
+                    "parts": [
+                        {"text": prompt}
+                    ]
+                }
+            ]
         )
-        # Safely extract text output
+
+        # ✅ Safely extract text
         if hasattr(response, "text") and response.text:
             return response.text.strip()
-        elif hasattr(response, "candidates") and response.candidates:
+        elif getattr(response, "candidates", None):
             return response.candidates[0].content.parts[0].text.strip()
         else:
-            raise ValueError("No valid text output from Gemini response")
+            raise ValueError("No valid text output returned by Gemini.")
+
     except Exception as e:
+        print(f"[Gemini ERROR] {e}")
         raise RuntimeError(f"Gemini API call failed: {e}")
+
 
 def _extract_json(raw: str) -> str:
     s, e = raw.find("{"), raw.rfind("}")
