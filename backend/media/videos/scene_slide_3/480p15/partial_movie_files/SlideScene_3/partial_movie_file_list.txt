@@ -1,9 +1,0 @@
-# This file is used internally by FFMPEG.
-file 'file:D:/D3/EduSynth/backend/media/videos/scene_slide_3/480p15/partial_movie_files/SlideScene_3/1185818338_500165439_223132457.mp4'
-file 'file:D:/D3/EduSynth/backend/media/videos/scene_slide_3/480p15/partial_movie_files/SlideScene_3/624642324_4217549388_560185487.mp4'
-file 'file:D:/D3/EduSynth/backend/media/videos/scene_slide_3/480p15/partial_movie_files/SlideScene_3/624642324_3050989556_2977216928.mp4'
-file 'file:D:/D3/EduSynth/backend/media/videos/scene_slide_3/480p15/partial_movie_files/SlideScene_3/624642324_4217549388_3784906907.mp4'
-file 'file:D:/D3/EduSynth/backend/media/videos/scene_slide_3/480p15/partial_movie_files/SlideScene_3/624642324_3226823574_4087840456.mp4'
-file 'file:D:/D3/EduSynth/backend/media/videos/scene_slide_3/480p15/partial_movie_files/SlideScene_3/624642324_4217549388_4046756957.mp4'
-file 'file:D:/D3/EduSynth/backend/media/videos/scene_slide_3/480p15/partial_movie_files/SlideScene_3/624642324_2624733357_3704867774.mp4'
-file 'file:D:/D3/EduSynth/backend/media/videos/scene_slide_3/480p15/partial_movie_files/SlideScene_3/624642324_2341082278_686155929.mp4'
