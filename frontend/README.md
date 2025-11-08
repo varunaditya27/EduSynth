@@ -164,7 +164,6 @@ sequenceDiagram
     A-->>Q: Update
     Q-->>C: Re-render
 ```
-```
 
 ---
 
