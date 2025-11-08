@@ -58,17 +58,32 @@ Example JSON:
 }}
 """
 
+# ✅ FIXED FUNCTION HERE
 def _call_gemini(prompt: str) -> str:
     model = genai.GenerativeModel(MODEL_NAME, generation_config=GENERATION_CONFIG)
-    resp = model.generate_content(prompt)
-    return (resp.text or "").strip()
+    try:
+        # Structured input as required in latest Gemini SDK
+        response = model.generate_content(
+            contents=[{"role": "user", "parts": [{"text": prompt}]}]
+        )
+        # Safely extract text output
+        if hasattr(response, "text") and response.text:
+            return response.text.strip()
+        elif hasattr(response, "candidates") and response.candidates:
+            return response.candidates[0].content.parts[0].text.strip()
+        else:
+            raise ValueError("No valid text output from Gemini response")
+    except Exception as e:
+        raise RuntimeError(f"Gemini API call failed: {e}")
 
 def _extract_json(raw: str) -> str:
     s, e = raw.find("{"), raw.rfind("}")
-    if s == -1 or e == -1: raise ValueError("No JSON found")
+    if s == -1 or e == -1:
+        raise ValueError("No JSON found in Gemini output")
     return raw[s:e+1]
 
-def _word_count(s: str): return len(re.findall(r"\w+", s or ""))
+def _word_count(s: str):
+    return len(re.findall(r"\w+", s or ""))
 
 def _normalize(slides: List[Dict], minutes: int):
     total = sum(s.get("duration", 0) for s in slides) or 1
