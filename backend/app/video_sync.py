@@ -1,20 +1,21 @@
+# backend/app/video_sync.py
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageStat
 import textwrap
 import os
+import random
+import requests
+from dotenv import load_dotenv
+import numpy as np
+
+# Load .env for Tenor API key
+load_dotenv()
+TENOR_API_KEY = os.getenv("TENOR_API_KEY")
 
 # Local Imports
 from .ai_animator import generate_manim_clip
 
-# --- FORCE IMAGEMAGICK PATH (important for MoviePy TextClip on Windows) ---
-IMAGEMAGICK_PATH = r"C:\Program Files\ImageMagick-7.1.2-Q16-HDRI\magick.exe"
-if os.path.exists(IMAGEMAGICK_PATH):
-    os.environ["IMAGEMAGICK_BINARY"] = IMAGEMAGICK_PATH
-    print(f"[OK] ImageMagick path set → {IMAGEMAGICK_PATH}")
-else:
-    print(f"[WARNING] ImageMagick not found at {IMAGEMAGICK_PATH}")
-
-# --- MoviePy Imports ---
+# MoviePy Imports
 from moviepy.editor import (
     ImageClip,
     VideoFileClip,
@@ -22,7 +23,8 @@ from moviepy.editor import (
     TextClip,
     CompositeVideoClip,
     concatenate_videoclips,
-    CompositeAudioClip
+    CompositeAudioClip,
+    vfx,
 )
 
 # ---------------------------------------------------------
@@ -33,7 +35,7 @@ THEMES_DIR = Path(__file__).resolve().parent.parent / "assets" / "themes"
 DEFAULT_SIZE = (1280, 720)
 
 # ---------------------------------------------------------
-# Helper: Load Theme Background
+# THEME BACKGROUND HANDLER
 # ---------------------------------------------------------
 def _get_theme_background(theme: str):
     """Load theme background image; fall back to white background."""
@@ -48,101 +50,116 @@ def _get_theme_background(theme: str):
     }
     theme_file = mapping.get(theme, "minimalist.png")
     bg_path = THEMES_DIR / theme_file
-
     if not bg_path.exists():
         print(f"[WARNING] Theme image not found for '{theme}', using white background.")
         img = Image.new("RGB", DEFAULT_SIZE, color=(255, 255, 255))
     else:
-        img = Image.open(bg_path).convert("RGB").resize(DEFAULT_SIZE)
+        # Use LANCZOS (new Pillow resampling constant)
+        img = Image.open(bg_path).convert("RGB").resize(DEFAULT_SIZE, Image.Resampling.LANCZOS)
     return img
 
 # ---------------------------------------------------------
-# Helper: Auto-detect brightness for text color switching
+# UTILITY HELPERS
 # ---------------------------------------------------------
 def _is_dark_image(img: Image.Image) -> bool:
-    """Return True if image is dark (mean brightness < 127)."""
     grayscale = img.convert("L")
     stat = ImageStat.Stat(grayscale)
-    brightness = stat.mean[0]
-    return brightness < 127
+    return stat.mean[0] < 127
 
-# ---------------------------------------------------------
-# Helper: Create Static Slide Image
-# ---------------------------------------------------------
-def _make_slide_image(task_id: str, slide_index: int, title: str, points: list, theme: str = "Minimalist"):
-    """Create slide PNG with theme background, title, and bullet points."""
-    slides_dir = OUTDIR / task_id / "slides_images"
-    slides_dir.mkdir(parents=True, exist_ok=True)
 
-    base_img = _get_theme_background(theme)
-    draw = ImageDraw.Draw(base_img)
-    text_color = (240, 240, 240) if _is_dark_image(base_img) else (25, 25, 25)
-
-    try:
-        font_title = ImageFont.truetype("arialbd.ttf", 44)
-        font_points = ImageFont.truetype("arial.ttf", 28)
-    except Exception:
-        font_title = ImageFont.load_default()
-        font_points = ImageFont.load_default()
-
-    margin = 60
-    x, y = margin, margin
-    title_wrapped = textwrap.fill(title, width=40)
-    draw.text((x, y), title_wrapped, fill=text_color, font=font_title)
-    y += 90
-
-    bullet = "• "
-    for p in points:
-        p_wrapped = textwrap.fill(p, width=60)
-        for line in p_wrapped.splitlines():
-            draw.text((x + 10, y), bullet + line, fill=text_color, font=font_points)
-            y += 40
-            bullet = "  "
-        bullet = "• "
-
-    out_path = slides_dir / f"slide_{slide_index}.png"
-    base_img.save(out_path.as_posix(), format="PNG")
-    return out_path.as_posix()
-
-# ---------------------------------------------------------
-# Helper: Safe Subtitle Fallback (Pillow-based)
-# ---------------------------------------------------------
-def _draw_fallback_subtitle(base_img: Image.Image, text: str):
-    """If TextClip fails, draw a subtitle directly with Pillow."""
+def _draw_fallback_subtitle(base_img: Image.Image, text: str, font_size: int = 28):
+    """Fallback subtitle rendering using Pillow (Pillow>=10 safe)."""
     draw = ImageDraw.Draw(base_img)
     try:
-        font = ImageFont.truetype("arial.ttf", 28)
+        font = ImageFont.truetype("arial.ttf", font_size)
     except:
         font = ImageFont.load_default()
 
-    # Semi-transparent box
-    box_height = 120
+    # Background box
+    box_height = 160
     overlay = Image.new("RGBA", base_img.size, (0, 0, 0, 0))
     draw_overlay = ImageDraw.Draw(overlay)
-    y_start = base_img.height - box_height - 40
-    draw_overlay.rectangle(
-        [(0, y_start), (base_img.width, base_img.height)],
-        fill=(0, 0, 0, 180)
-    )
+    y_start = base_img.height - box_height - 60
+    draw_overlay.rectangle([(0, y_start), (base_img.width, base_img.height)], fill=(0, 0, 0, 180))
     base_img = Image.alpha_composite(base_img.convert("RGBA"), overlay)
 
-    # Wrap text and draw centered
+    # Draw text (using textbbox)
     lines = textwrap.fill(text, width=80).split("\n")
-    y_text = y_start + 30
+    y_text = y_start + 20
     for line in lines:
-        w, h = draw.textsize(line, font=font)
+        bbox = draw.textbbox((0, 0), line, font=font)
+        w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
         x_text = (base_img.width - w) / 2
         draw.text((x_text, y_text), line, font=font, fill=(255, 255, 255))
-        y_text += h + 4
+        y_text += h + 6
     return base_img.convert("RGB")
 
+
+def _apply_ken_burns(img_clip, zoom=1.08):
+    """Subtle pan/zoom effect to make static slides dynamic."""
+    try:
+        return img_clip.fx(vfx.zoom_in, final_scale=zoom, duration=img_clip.duration)
+    except Exception:
+        return img_clip
+
+
 # ---------------------------------------------------------
-# Main: Assemble Final Video
+# TENOR CONTEXTUAL ANIMATION FETCHER
+# ---------------------------------------------------------
+def _get_contextual_animation(narration: str):
+    """
+    Fetch a contextual animation dynamically from Tenor GIF API.
+    Returns a downloaded mp4 path if successful.
+    """
+    if not TENOR_API_KEY or not narration:
+        return None
+
+    words = [w.strip(",.!?") for w in narration.lower().split()]
+    keywords = [w for w in words if len(w) > 4]
+    if not keywords:
+        return None
+
+    query = random.choice(keywords[:3])
+    url = f"https://tenor.googleapis.com/v2/search?q={query}&key={TENOR_API_KEY}&limit=1"
+
+    try:
+        resp = requests.get(url, timeout=5)
+        data = resp.json()
+        if "results" in data and data["results"]:
+            media = data["results"][0]["media_formats"]
+            mp4_url = None
+            for _, v in media.items():
+                if "mp4" in v.get("url", ""):
+                    mp4_url = v["url"]
+                    break
+            if not mp4_url:
+                return None
+
+            tmp_dir = OUTDIR / "temp"
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            tmp_path = tmp_dir / f"{query}.mp4"
+
+            with requests.get(mp4_url, stream=True, timeout=10) as r:
+                with open(tmp_path, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+            print(f"[GIF API] Downloaded contextual animation for '{query}' → {tmp_path}")
+            return tmp_path.as_posix()
+    except Exception as e:
+        print(f"[GIF API ERROR] {e}")
+    return None
+
+
+# ---------------------------------------------------------
+# MAIN VIDEO ASSEMBLY
 # ---------------------------------------------------------
 def assemble_video_from_slides(task_id: str, slides: list, theme: str = "Minimalist", use_manim: bool = True):
     """
-    Combines Manim animations (if available) or static slides with narration audio.
-    Integrates subtitles, theme-based styling, and fade transitions.
+    Builds the full video with:
+    - Themed background
+    - Manim or Ken Burns slides
+    - Tenor contextual animations (right side)
+    - Subtitles + TTS audio
     """
     video_dir = OUTDIR / task_id / "video"
     video_dir.mkdir(parents=True, exist_ok=True)
@@ -150,95 +167,89 @@ def assemble_video_from_slides(task_id: str, slides: list, theme: str = "Minimal
     base_img = _get_theme_background(theme)
     text_color = "white" if _is_dark_image(base_img) else "black"
 
-    video_clips = []
-    audio_clips_with_timing = []
+    video_clips, audio_clips = [], []
     current_time = 0.0
 
     for s in slides:
         idx = s["index"]
-        title = s.get("title", f"Slide {idx}")
-        points = s.get("points", [])
         narration = s.get("narration", "")
         duration = float(s.get("display_duration", s.get("audio_duration", 5.0)))
         audio_path = s.get("audio_path")
 
-        # --- 1️⃣ Try to use Manim animation if enabled ---
-        img_clip = None
+        bg_array = np.array(base_img)
+        bg_clip = ImageClip(bg_array).set_duration(duration)
+
+        # --- 1️⃣ Try Manim Animation ---
+        clip = None
         if use_manim:
             try:
-                ai_clip_path = generate_manim_clip(s, task_id, theme=theme, manim_quality="low")
-                img_clip = VideoFileClip(ai_clip_path).subclip(0, duration)
-                print(f"[MANIM] Using Manim animation for slide {idx}")
+                path = generate_manim_clip(s, task_id, theme)
+                manim_clip = VideoFileClip(path).subclip(0, duration)
+                clip = CompositeVideoClip([bg_clip, manim_clip])
             except Exception as e:
-                print(f"[MANIM] Failed for slide {idx}: {e} — falling back to static slide")
+                print(f"[MANIM] Failed for slide {idx}: {e}")
 
-        # --- 2️⃣ Fallback to static slide image ---
-        if img_clip is None:
-            img_path = _make_slide_image(task_id, idx, title, points, theme)
-            img_clip = ImageClip(img_path).set_duration(duration)
+        # --- 2️⃣ Static Fallback with Ken Burns ---
+        if clip is None:
+            slide_img = ImageClip(np.array(base_img)).set_duration(duration)
+            clip = _apply_ken_burns(slide_img, 1.05)
 
-        # --- 3️⃣ Add subtitles (with Pillow fallback) ---
+        # --- 3️⃣ Contextual Tenor Animation (right side) ---
+        anim_path = _get_contextual_animation(narration)
+        if anim_path:
+            try:
+                anim_clip = VideoFileClip(anim_path).set_duration(duration)
+                anim_clip = anim_clip.resize(width=int(clip.w * 0.33))
+                overlay_x = int(clip.w * 0.60)
+                overlay_y = int(clip.h * 0.25)
+                anim_clip = anim_clip.set_position((overlay_x, overlay_y)).fadein(0.4).fadeout(0.4)
+                clip = CompositeVideoClip([clip, anim_clip])
+                print(f"[OVERLAY] Added contextual animation for slide {idx}")
+            except Exception as e:
+                print(f"[OVERLAY] Failed overlay for slide {idx}: {e}")
+
+        # --- 4️⃣ Subtitles ---
         if narration.strip():
             try:
-                subtitle_clip = TextClip(
+                sub = TextClip(
                     narration,
                     fontsize=28,
                     color=text_color,
                     font="Arial",
                     method="caption",
-                    size=(img_clip.w - 200, 140),
+                    size=(clip.w - 160, 180),
                     align="center",
-                    stroke_color="black" if text_color == "white" else "white",
-                    stroke_width=1.5
-                ).set_position(("center", img_clip.h - 160)).set_duration(duration)
+                ).set_position(("center", clip.h - 120)).set_duration(duration)
 
-                bg_box = (TextClip(" ", fontsize=32, size=(img_clip.w, 160), color="black")
-                          .set_opacity(0.55)
-                          .set_position(("center", img_clip.h - 160))
-                          .set_duration(duration))
-
-                img_clip = CompositeVideoClip([img_clip, bg_box, subtitle_clip])
-
+                bg_box = TextClip(" ", fontsize=32, size=(clip.w, 180), color="black")
+                bg_box = bg_box.set_opacity(0.55).set_position(("center", clip.h - 120)).set_duration(duration)
+                clip = CompositeVideoClip([clip, bg_box, sub])
             except Exception as e:
-                print(f"[WARNING] Subtitle rendering failed on slide {idx}: {e}")
-                # Fallback: render subtitle with Pillow and replace image
-                print("[FALLBACK] Drawing subtitle with Pillow.")
-                fallback_img = _get_theme_background(theme)
-                fallback_img = _draw_fallback_subtitle(fallback_img, narration)
-                temp_path = OUTDIR / task_id / "slides_images" / f"slide_{idx}_fallback.png"
-                fallback_img.save(temp_path)
-                img_clip = ImageClip(str(temp_path)).set_duration(duration)
+                print(f"[Subtitle Fallback] {e}")
+                fallback = _draw_fallback_subtitle(base_img.copy(), narration)
+                clip = ImageClip(np.array(fallback)).set_duration(duration)
 
-        # --- 4️⃣ Attach audio ---
+        # --- 5️⃣ Attach Audio ---
         if audio_path and os.path.exists(audio_path):
             try:
-                audio_clip = AudioFileClip(audio_path).set_start(current_time)
-                audio_clips_with_timing.append(audio_clip)
-                print(f"  ✓ Audio attached for slide {idx} at {current_time:.2f}s")
+                audio = AudioFileClip(audio_path).set_start(current_time)
+                audio_clips.append(audio)
             except Exception as e:
-                print(f"  ✗ Failed to attach audio for slide {idx}: {e}")
+                print(f"Audio attach fail: {e}")
 
-        img_clip = img_clip.fadein(0.4).fadeout(0.4)
-        video_clips.append(img_clip)
+        clip = clip.fadein(0.4).fadeout(0.4)
+        video_clips.append(clip)
         current_time += duration
 
-    # --- 5️⃣ Combine all clips ---
-    print(f"[VIDEO] Concatenating {len(video_clips)} clips...")
-    final_video = concatenate_videoclips(video_clips, method="compose")
+    # --- 6️⃣ Merge Everything ---
+    final = concatenate_videoclips(video_clips, method="compose")
+    if audio_clips:
+        final = final.set_audio(CompositeAudioClip(audio_clips))
 
-    # --- 6️⃣ Merge all audio tracks ---
-    print("[AUDIO] Combining audio tracks...")
-    if audio_clips_with_timing:
-        composite_audio = CompositeAudioClip(audio_clips_with_timing)
-        final_video = final_video.set_audio(composite_audio)
-    else:
-        print("[WARNING] No audio tracks detected!")
-
-    # --- 7️⃣ Export final MP4 ---
     out_path = video_dir / f"{task_id}.mp4"
     print(f"[EXPORT] Rendering final video → {out_path}")
 
-    final_video.write_videofile(
+    final.write_videofile(
         out_path.as_posix(),
         fps=24,
         codec="libx264",
@@ -247,18 +258,8 @@ def assemble_video_from_slides(task_id: str, slides: list, theme: str = "Minimal
         threads=4,
         temp_audiofile=str(video_dir / "temp-audio.m4a"),
         remove_temp=True,
-        verbose=True,
-        logger=None
+        verbose=False,
     )
 
-    print(f"✅ Video created successfully: {out_path}")
-    print(f"   Duration: {final_video.duration:.2f}s | Audio attached: {final_video.audio is not None}")
-
-    # --- 8️⃣ Cleanup ---
-    for clip in video_clips:
-        clip.close()
-    for a in audio_clips_with_timing:
-        a.close()
-    final_video.close()
-
+    print(f"✅ Final video saved → {out_path}")
     return out_path.as_posix()
