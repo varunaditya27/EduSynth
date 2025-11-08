@@ -39,3 +39,27 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+# EduSynth generated assets
+/media/
+output/
+texts/
+videos/
+
+# Python / FastAPI
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.env
+
+# Node / frontend
+node_modules/
+dist/
+.next/
+build/
+
+# OS junk
+.DS_Store
+Thumbs.db

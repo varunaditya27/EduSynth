@@ -1,14 +1,24 @@
-venv
+# EduSynth generated assets
+/media/
+output/
+texts/
+videos/
 
-.env
-.env.local
-
+# Python / FastAPI
 __pycache__/
 *.pyc
-*.json
+*.pyo
+*.pyd
+.venv/
+venv/
+.env
 
-# Generated outputs
-scripts/artifacts/
-*.pptx
-*.pdf
-*.png
+# Node / frontend
+node_modules/
+dist/
+.next/
+build/
+
+# OS junk
+.DS_Store
+Thumbs.db
