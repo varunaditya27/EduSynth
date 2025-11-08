@@ -73,3 +73,5 @@ groq==0.11.0             # for advanced text-to-structure AI
 requests==2.32.3         # universal HTTP requests (for Unsplash etc.)
 tqdm==4.67.0             # progress indicators for local builders
 colorama==0.4.6          # terminal color output for builder scripts
+supabase==2.6.0
+loguru==0.7.2
