@@ -79,28 +79,28 @@
 
 ### Component Architecture
 
-```mermaid
-graph TB
-    subgraph "App Router"
+```
+flowchart TB
+    subgraph AppRouter["App Router"]
         A[Layout]
         B[Pages]
         C[Loading States]
         D[Error Boundaries]
     end
     
-    subgraph "Component Layer"
+    subgraph ComponentLayer["Component Layer"]
         E[UI Components]
         F[Feature Components]
         G[Layout Components]
     end
     
-    subgraph "State Management"
+    subgraph StateManagement["State Management"]
         H[Zustand Store]
         I[TanStack Query]
         J[React Context]
     end
     
-    subgraph "Data Layer"
+    subgraph DataLayer["Data Layer"]
         K[API Client]
         L[WebSocket Client]
         M[Local Storage]
@@ -122,14 +122,22 @@ graph TB
     L --> I
     H --> M
     
-    style A fill:#000000,stroke:#ffffff,color:#ffffff
-    style H fill:#764abc,stroke:#5a2d8c,color:#ffffff
-    style I fill:#ff4154,stroke:#cc1a2b,color:#ffffff
-</mermaid>
+    classDef nextjs fill:#000000,stroke:#ffffff,color:#ffffff,stroke-width:2px
+    classDef zustand fill:#764abc,stroke:#5a2d8c,color:#ffffff,stroke-width:2px
+    classDef query fill:#ff4154,stroke:#cc1a2b,color:#ffffff,stroke-width:2px
+    
+    class A nextjs
+    class H zustand
+    class I query
+```
+```
 
+### Data Flow (Fixed)
+
+````markdown
 ### Data Flow
 
-```mermaid
+```
 sequenceDiagram
     participant U as User
     participant C as Component
@@ -145,16 +153,17 @@ sequenceDiagram
     A->>B: API Call
     B-->>A: Response
     A-->>Q: Data
-    Q->>Q: Cache & Normalize
+    Note over Q: Cache & Normalize
     Q-->>C: Render Data
     C-->>U: UI Update
     
-    Note over Q: Automatic revalidation
+    Note over Q,A: Automatic revalidation
     Q->>A: Background Refresh
     A->>B: Revalidate
     B-->>A: Fresh Data
     A-->>Q: Update
     Q-->>C: Re-render
+```
 ```
 
 ---
