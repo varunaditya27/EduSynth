@@ -28,6 +28,7 @@ passlib[bcrypt]==1.7.4
 tenacity==9.1.2
 jinja2==3.1.4
 python-dotenv==1.0.1
+bcrypt==4.0.1
 
 # AWS / R2
 boto3==1.34.141
@@ -52,6 +53,7 @@ imageio==2.37.0
 imageio-ffmpeg==0.6.0
 pydub==0.25.1
 elevenlabs==2.22.0
+reportlab==4.2.0
 
 # Utilities
 numpy==2.1.3

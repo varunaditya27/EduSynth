@@ -20,7 +20,7 @@ from app.services.auth_service import auth_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/auth", tags=["authentication"])
+router = APIRouter()  # Prefix added in main.py as /v1/auth
 
 
 @router.post(

@@ -56,10 +56,10 @@ export const AUDIENCE_OPTIONS = [
 ];
 
 export const DURATION_OPTIONS = {
-  min: 5,
-  max: 15,
+  min: 1,
+  max: 5,
   step: 1,
-  default: 10,
+  default: 2,
 };
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';

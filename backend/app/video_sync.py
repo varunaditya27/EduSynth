@@ -6,6 +6,14 @@ import os
 # Local Imports
 from .ai_animator import generate_manim_clip
 
+# --- FORCE IMAGEMAGICK PATH (important for MoviePy TextClip on Windows) ---
+IMAGEMAGICK_PATH = r"C:\Program Files\ImageMagick-7.1.2-Q16-HDRI\magick.exe"
+if os.path.exists(IMAGEMAGICK_PATH):
+    os.environ["IMAGEMAGICK_BINARY"] = IMAGEMAGICK_PATH
+    print(f"[OK] ImageMagick path set → {IMAGEMAGICK_PATH}")
+else:
+    print(f"[WARNING] ImageMagick not found at {IMAGEMAGICK_PATH}")
+
 # --- MoviePy Imports ---
 from moviepy.editor import (
     ImageClip,
@@ -16,9 +24,6 @@ from moviepy.editor import (
     concatenate_videoclips,
     CompositeAudioClip
 )
-
-# --- ImageMagick Path (for MoviePy TextClip on Windows) ---
-os.environ["IMAGEMAGICK_BINARY"] = r"C:\Program Files\ImageMagick-7.1.2-Q16-HDRI\magick.exe"
 
 # ---------------------------------------------------------
 # Global Directories
@@ -80,14 +85,12 @@ def _make_slide_image(task_id: str, slide_index: int, title: str, points: list, 
         font_title = ImageFont.load_default()
         font_points = ImageFont.load_default()
 
-    # Draw title
     margin = 60
     x, y = margin, margin
     title_wrapped = textwrap.fill(title, width=40)
     draw.text((x, y), title_wrapped, fill=text_color, font=font_title)
     y += 90
 
-    # Draw bullet points
     bullet = "• "
     for p in points:
         p_wrapped = textwrap.fill(p, width=60)
@@ -100,6 +103,38 @@ def _make_slide_image(task_id: str, slide_index: int, title: str, points: list, 
     out_path = slides_dir / f"slide_{slide_index}.png"
     base_img.save(out_path.as_posix(), format="PNG")
     return out_path.as_posix()
+
+# ---------------------------------------------------------
+# Helper: Safe Subtitle Fallback (Pillow-based)
+# ---------------------------------------------------------
+def _draw_fallback_subtitle(base_img: Image.Image, text: str):
+    """If TextClip fails, draw a subtitle directly with Pillow."""
+    draw = ImageDraw.Draw(base_img)
+    try:
+        font = ImageFont.truetype("arial.ttf", 28)
+    except:
+        font = ImageFont.load_default()
+
+    # Semi-transparent box
+    box_height = 120
+    overlay = Image.new("RGBA", base_img.size, (0, 0, 0, 0))
+    draw_overlay = ImageDraw.Draw(overlay)
+    y_start = base_img.height - box_height - 40
+    draw_overlay.rectangle(
+        [(0, y_start), (base_img.width, base_img.height)],
+        fill=(0, 0, 0, 180)
+    )
+    base_img = Image.alpha_composite(base_img.convert("RGBA"), overlay)
+
+    # Wrap text and draw centered
+    lines = textwrap.fill(text, width=80).split("\n")
+    y_text = y_start + 30
+    for line in lines:
+        w, h = draw.textsize(line, font=font)
+        x_text = (base_img.width - w) / 2
+        draw.text((x_text, y_text), line, font=font, fill=(255, 255, 255))
+        y_text += h + 4
+    return base_img.convert("RGB")
 
 # ---------------------------------------------------------
 # Main: Assemble Final Video
@@ -142,7 +177,7 @@ def assemble_video_from_slides(task_id: str, slides: list, theme: str = "Minimal
             img_path = _make_slide_image(task_id, idx, title, points, theme)
             img_clip = ImageClip(img_path).set_duration(duration)
 
-        # --- 3️⃣ Add subtitles ---
+        # --- 3️⃣ Add subtitles (with Pillow fallback) ---
         if narration.strip():
             try:
                 subtitle_clip = TextClip(
@@ -163,8 +198,16 @@ def assemble_video_from_slides(task_id: str, slides: list, theme: str = "Minimal
                           .set_duration(duration))
 
                 img_clip = CompositeVideoClip([img_clip, bg_box, subtitle_clip])
+
             except Exception as e:
                 print(f"[WARNING] Subtitle rendering failed on slide {idx}: {e}")
+                # Fallback: render subtitle with Pillow and replace image
+                print("[FALLBACK] Drawing subtitle with Pillow.")
+                fallback_img = _get_theme_background(theme)
+                fallback_img = _draw_fallback_subtitle(fallback_img, narration)
+                temp_path = OUTDIR / task_id / "slides_images" / f"slide_{idx}_fallback.png"
+                fallback_img.save(temp_path)
+                img_clip = ImageClip(str(temp_path)).set_duration(duration)
 
         # --- 4️⃣ Attach audio ---
         if audio_path and os.path.exists(audio_path):

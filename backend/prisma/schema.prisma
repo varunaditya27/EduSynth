@@ -47,19 +47,25 @@ model Lecture {
   slidesPdfUrl      String?       // URL to PDF export
   videoStatus       VideoStatus   @default(PENDING)
   
+  // Interactive Animation (NEW)
+  animationTaskId   String?       // Task ID for interactive animations
+  animationStatus   VideoStatus?  // Status of animation generation
+  hasInteractive    Boolean       @default(false)  // Whether interactive version exists
+  
   // Processing Metadata
   processingStartedAt DateTime?
   processingCompletedAt DateTime?
   errorMessage      String?       @db.Text
   
   // Ownership
-  userId            String
-  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String?       // Made optional for system-generated lectures
+  user              User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   // Relations
   slides            Slide[]
   quizQuestions     QuizQuestion[]
   mindMap           MindMap?
+  animationData     AnimationMetadata?  // NEW: Link to animation metadata
   
   // Timestamps
   createdAt         DateTime      @default(now())
@@ -154,6 +160,57 @@ model MindMap {
   
   @@index([lectureId])
   @@map("mindmaps")
+}
+
+// ===========================
+// ANIMATION METADATA (NEW)
+// ===========================
+
+model AnimationMetadata {
+  id                  String    @id @default(uuid())
+  lectureId           String    @unique
+  lecture             Lecture   @relation(fields: [lectureId], references: [id], onDelete: Cascade)
+  
+  // Animation Task Reference
+  taskId              String    @unique  // Task ID from animation generator (output/animations/{taskId}.json)
+  
+  // Content Metadata
+  topic               String
+  audience            String
+  theme               String
+  
+  // Animation Statistics
+  slideCount          Int       // Total number of animated slides
+  interactionCount    Int       // Total interactive elements
+  totalDurationSeconds Int      // Estimated completion time
+  
+  // Interaction Configuration
+  interactionLevel    String    @default("medium")  // low, medium, high
+  animationStyle      String    @default("dynamic")  // gentle, dynamic, professional
+  
+  // Feature Flags
+  includeSimulations  Boolean   @default(false)
+  includeQuizzes      Boolean   @default(true)
+  
+  // Gamification
+  totalPoints         Int       @default(0)
+  badgesAvailable     String[]  // Array of badge names
+  
+  // Progress Tracking (JSON for flexibility)
+  slidesOverview      Json      // Array of slide summaries with titles, concepts, difficulties
+  
+  // Generation Status
+  status              VideoStatus @default(PENDING)
+  errorMessage        String?   @db.Text
+  
+  // Timestamps
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  
+  @@index([lectureId])
+  @@index([taskId])
+  @@index([status])
+  @@map("animation_metadata")
 }
 
 // ===========================

@@ -1,75 +1,86 @@
-"""
-Authentication dependency for FastAPI routes.
-"""
+from __future__ import annotations
+
+import os
 from typing import Optional
-from fastapi import Header, HTTPException
-from pydantic import BaseModel
+
+from fastapi import Depends, Header, HTTPException
 from jose import JWTError, jwt
+from pydantic import BaseModel
 
 from app.core.config import settings
 
 
 class CurrentUser(BaseModel):
-    """Authenticated user information."""
     user_id: str
     email: Optional[str] = None
 
 
-async def get_current_user(authorization: str = Header(...)) -> CurrentUser:
+def _dev_bypass_enabled() -> bool:
+    # Any truthy value enables bypass (true/1/yes)
+    return os.getenv("SUPABASE_DEV_BYPASS", "false").strip().lower() in {"true", "1", "yes"}
+
+
+def _unauthenticated() -> HTTPException:
+    return HTTPException(status_code=401, detail="UNAUTHENTICATED")
+
+
+async def get_current_user(authorization: Optional[str] = Header(default=None)) -> CurrentUser:
     """
-    Extract and verify JWT token from Authorization header.
-    
-    Args:
-        authorization: Bearer token from Authorization header
-        
-    Returns:
-        CurrentUser with user_id and optional email
-        
-    Raises:
-        HTTPException: 401 if token is invalid or missing
+    Dev-friendly auth dependency:
+    - If SUPABASE_DEV_BYPASS=true -> returns a fixed dev user regardless of header
+    - Else requires 'Authorization: Bearer <jwt>' and verifies with SUPABASE_JWT_SECRET (HS256)
+    - On any failure, raises 401 (NOT 422)
     """
-    try:
-        # Extract token from "Bearer <token>"
-        scheme, token = authorization.split()
-        if scheme.lower() != "bearer":
-            raise HTTPException(
-                status_code=401,
-                detail="UNAUTHENTICATED",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-    except ValueError:
-        raise HTTPException(
-            status_code=401,
-            detail="UNAUTHENTICATED",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    # Local dev bypass
+    if _dev_bypass_enabled():
+        return CurrentUser(user_id="dev-user", email="dev@local")
+
+    if not authorization or not authorization.startswith("Bearer "):
+        raise _unauthenticated()
+
+    token = authorization.split(" ", 1)[1].strip()
+    secret = settings.SUPABASE_JWT_SECRET
+    if not secret:
+        # If secret is not configured, fail fast (or allow only in dev via bypass)
+        raise _unauthenticated()
 
     try:
-        # Verify JWT with HS256
-        payload = jwt.decode(
-            token,
-            settings.SUPABASE_JWT_SECRET,
-            algorithms=["HS256"],
-            options={"verify_aud": False},  # Supabase tokens may not have aud
-        )
-        
-        # Extract user_id (prefer 'sub', fallback to 'uid')
-        user_id = payload.get("sub") or payload.get("uid")
-        if not user_id:
-            raise HTTPException(
-                status_code=401,
-                detail="UNAUTHENTICATED",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        
-        # Try to extract email if present
-        email = payload.get("email")
-        
-        return CurrentUser(user_id=user_id, email=email)
-        
+        payload = jwt.decode(token, secret, algorithms=["HS256"])
     except JWTError:
-        raise HTTPException(
-            status_code=401,
-            detail="UNAUTHENTICATED",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise _unauthenticated()
+
+    # prefer 'sub', fallback 'uid'
+    user_id = (payload.get("sub") or payload.get("uid"))
+    if not user_id:
+        raise _unauthenticated()
+
+    email = payload.get("email")
+    return CurrentUser(user_id=str(user_id), email=email)
+
+
+async def get_current_user_optional(authorization: Optional[str] = Header(default=None)) -> Optional[CurrentUser]:
+    """
+    Optional auth dependency - returns None if no valid auth provided.
+    Useful for endpoints that work with or without authentication.
+    """
+    # Local dev bypass
+    if _dev_bypass_enabled():
+        return CurrentUser(user_id="dev-user", email="dev@local")
+
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+
+    token = authorization.split(" ", 1)[1].strip()
+    secret = settings.SUPABASE_JWT_SECRET
+    if not secret:
+        return None
+
+    try:
+        payload = jwt.decode(token, secret, algorithms=["HS256"])
+        user_id = (payload.get("sub") or payload.get("uid"))
+        if not user_id:
+            return None
+        email = payload.get("email")
+        return CurrentUser(user_id=str(user_id), email=email)
+    except JWTError:
+        return None
