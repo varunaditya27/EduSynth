@@ -11,6 +11,8 @@ import numpy as np
 # Load .env for Tenor API key
 load_dotenv()
 TENOR_API_KEY = os.getenv("TENOR_API_KEY")
+# Fix ImageMagick path for MoviePy TextClip
+os.environ["IMAGEMAGICK_BINARY"] = r"C:\Program Files\ImageMagick-7.1.2-Q16-HDRI\magick.exe"
 
 # Local Imports
 from .ai_animator import generate_manim_clip
@@ -54,7 +56,7 @@ def _get_theme_background(theme: str):
         print(f"[WARNING] Theme image not found for '{theme}', using white background.")
         img = Image.new("RGB", DEFAULT_SIZE, color=(255, 255, 255))
     else:
-        # Use LANCZOS (new Pillow resampling constant)
+        # ✅ FIX: Use LANCZOS instead of ANTIALIAS
         img = Image.open(bg_path).convert("RGB").resize(DEFAULT_SIZE, Image.Resampling.LANCZOS)
     return img
 
@@ -84,6 +86,7 @@ def _draw_fallback_subtitle(base_img: Image.Image, text: str, font_size: int = 2
     base_img = Image.alpha_composite(base_img.convert("RGBA"), overlay)
 
     # Draw text (using textbbox)
+    draw = ImageDraw.Draw(base_img)  # ✅ Redraw after composite
     lines = textwrap.fill(text, width=80).split("\n")
     y_text = y_start + 20
     for line in lines:
@@ -99,7 +102,8 @@ def _apply_ken_burns(img_clip, zoom=1.08):
     """Subtle pan/zoom effect to make static slides dynamic."""
     try:
         return img_clip.fx(vfx.zoom_in, final_scale=zoom, duration=img_clip.duration)
-    except Exception:
+    except Exception as e:
+        print(f"[Ken Burns] Failed: {e}")
         return img_clip
 
 
@@ -172,9 +176,16 @@ def assemble_video_from_slides(task_id: str, slides: list, theme: str = "Minimal
 
     for s in slides:
         idx = s["index"]
+        title = s.get("title", f"Slide {idx}")
+        points = s.get("points", [])
         narration = s.get("narration", "")
         duration = float(s.get("display_duration", s.get("audio_duration", 5.0)))
         audio_path = s.get("audio_path")
+
+        print(f"\n[SLIDE {idx}] Processing: '{title}'")
+        print(f"  Points: {len(points)} bullets")
+        print(f"  Narration: {narration[:60]}...")
+        print(f"  Duration: {duration}s")
 
         bg_array = np.array(base_img)
         bg_clip = ImageClip(bg_array).set_duration(duration)
@@ -183,34 +194,70 @@ def assemble_video_from_slides(task_id: str, slides: list, theme: str = "Minimal
         clip = None
         if use_manim:
             try:
+                print(f"  [MANIM] Attempting to render slide {idx}...")
                 path = generate_manim_clip(s, task_id, theme)
                 manim_clip = VideoFileClip(path).subclip(0, duration)
                 clip = CompositeVideoClip([bg_clip, manim_clip])
+                print(f"  [MANIM] ✅ Success!")
             except Exception as e:
-                print(f"[MANIM] Failed for slide {idx}: {e}")
+                print(f"  [MANIM] ❌ Failed: {e}")
 
         # --- 2️⃣ Static Fallback with Ken Burns ---
         if clip is None:
-            slide_img = ImageClip(np.array(base_img)).set_duration(duration)
-            clip = _apply_ken_burns(slide_img, 1.05)
+            print(f"  [FALLBACK] Using static background with Ken Burns effect")
+            
+            # ✅ CRITICAL FIX: Manually render slide content onto background
+            slide_img = base_img.copy()
+            draw = ImageDraw.Draw(slide_img)
+            
+            try:
+                title_font = ImageFont.truetype("arial.ttf", 48)
+                point_font = ImageFont.truetype("arial.ttf", 32)
+            except:
+                title_font = ImageFont.load_default()
+                point_font = ImageFont.load_default()
+            
+            # Draw title at top
+            title_bbox = draw.textbbox((0, 0), title, font=title_font)
+            title_w = title_bbox[2] - title_bbox[0]
+            title_x = (slide_img.width - title_w) / 2
+            draw.text((title_x, 60), title, font=title_font, fill=text_color)
+            
+            # Draw bullet points
+            y_offset = 180
+            for i, point in enumerate(points):
+                wrapped_text = textwrap.fill(point, width=60)
+                for line in wrapped_text.split('\n'):
+                    draw.text((100, y_offset), f"• {line}", font=point_font, fill=text_color)
+                    y_offset += 50
+            
+            slide_array = np.array(slide_img)
+            slide_clip = ImageClip(slide_array).set_duration(duration)
+            clip = _apply_ken_burns(slide_clip, 1.05)
 
         # --- 3️⃣ Contextual Tenor Animation (right side) ---
         anim_path = _get_contextual_animation(narration)
         if anim_path:
             try:
-                anim_clip = VideoFileClip(anim_path).set_duration(duration)
-                anim_clip = anim_clip.resize(width=int(clip.w * 0.33))
+                print(f"  [TENOR] Adding contextual animation...")
+                anim_clip = VideoFileClip(anim_path).subclip(0, min(duration, 10))
+                
+                # ✅ FIX: Proper resizing without ANTIALIAS
+                anim_w = int(clip.w * 0.33)
+                anim_clip = anim_clip.resize(width=anim_w)
+                
                 overlay_x = int(clip.w * 0.60)
                 overlay_y = int(clip.h * 0.25)
                 anim_clip = anim_clip.set_position((overlay_x, overlay_y)).fadein(0.4).fadeout(0.4)
                 clip = CompositeVideoClip([clip, anim_clip])
-                print(f"[OVERLAY] Added contextual animation for slide {idx}")
+                print(f"  [TENOR] ✅ Overlay added!")
             except Exception as e:
-                print(f"[OVERLAY] Failed overlay for slide {idx}: {e}")
+                print(f"  [TENOR] ❌ Overlay failed: {e}")
 
         # --- 4️⃣ Subtitles ---
         if narration.strip():
             try:
+                print(f"  [SUBTITLE] Rendering subtitles...")
                 sub = TextClip(
                     narration,
                     fontsize=28,
@@ -224,24 +271,32 @@ def assemble_video_from_slides(task_id: str, slides: list, theme: str = "Minimal
                 bg_box = TextClip(" ", fontsize=32, size=(clip.w, 180), color="black")
                 bg_box = bg_box.set_opacity(0.55).set_position(("center", clip.h - 120)).set_duration(duration)
                 clip = CompositeVideoClip([clip, bg_box, sub])
+                print(f"  [SUBTITLE] ✅ Added!")
             except Exception as e:
-                print(f"[Subtitle Fallback] {e}")
-                fallback = _draw_fallback_subtitle(base_img.copy(), narration)
-                clip = ImageClip(np.array(fallback)).set_duration(duration)
+                print(f"  [SUBTITLE] ❌ Failed with TextClip: {e}")
+                print(f"  [SUBTITLE] Using Pillow fallback...")
+                try:
+                    fallback = _draw_fallback_subtitle(base_img.copy(), narration)
+                    clip = ImageClip(np.array(fallback)).set_duration(duration)
+                    print(f"  [SUBTITLE] ✅ Fallback success!")
+                except Exception as e2:
+                    print(f"  [SUBTITLE] ❌ Fallback also failed: {e2}")
 
         # --- 5️⃣ Attach Audio ---
         if audio_path and os.path.exists(audio_path):
             try:
                 audio = AudioFileClip(audio_path).set_start(current_time)
                 audio_clips.append(audio)
+                print(f"  [AUDIO] ✅ Attached: {Path(audio_path).name}")
             except Exception as e:
-                print(f"Audio attach fail: {e}")
+                print(f"  [AUDIO] ❌ Failed: {e}")
 
         clip = clip.fadein(0.4).fadeout(0.4)
         video_clips.append(clip)
         current_time += duration
 
     # --- 6️⃣ Merge Everything ---
+    print(f"\n[FINAL] Concatenating {len(video_clips)} clips...")
     final = concatenate_videoclips(video_clips, method="compose")
     if audio_clips:
         final = final.set_audio(CompositeAudioClip(audio_clips))
@@ -258,7 +313,7 @@ def assemble_video_from_slides(task_id: str, slides: list, theme: str = "Minimal
         threads=4,
         temp_audiofile=str(video_dir / "temp-audio.m4a"),
         remove_temp=True,
-        verbose=False,
+        verbose=True,  # ✅ Changed to True for better debugging
     )
 
     print(f"✅ Final video saved → {out_path}")

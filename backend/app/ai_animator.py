@@ -8,11 +8,13 @@ Designed to integrate with your existing video_sync pipeline.
  - Keeps theme background constant (no forced black/white)
  - Renders with transparency (so can composite over themed slide)
  - Retains original logic for text animations
+ - FIXED: Manim output location finder for newer Manim versions
 """
 
 from pathlib import Path
 import subprocess
 import re
+import time
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_ROOT = PROJECT_ROOT / "output"
@@ -75,11 +77,77 @@ class {scene_name}(Scene):
 
 
 def _find_manim_output(scene_file: Path, scene_name: str) -> Path:
-    media_root = Path.cwd() / "media"
-    candidates = list(media_root.rglob(f"{scene_name}.mp4"))
-    if candidates:
-        return sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)[0]
-    raise FileNotFoundError("Rendered manim mp4 not found in media/")
+    """
+    ✅ ENHANCED: Locate the generated Manim MP4 file with multiple search strategies.
+    Supports new Manim folder structure and waits for file generation.
+    """
+    # Wait a bit for file system to update
+    time.sleep(0.5)
+    
+    # Strategy 1: Search in media/ folder relative to PROJECT_ROOT
+    media_root = PROJECT_ROOT / "media"
+    
+    print(f"[MANIM] Searching for {scene_name}.mp4 in:")
+    print(f"  - {media_root}")
+    
+    # Try common Manim output paths
+    possible_paths = [
+        media_root / "videos" / scene_file.stem / "480p15" / f"{scene_name}.mp4",
+        media_root / "videos" / scene_file.stem / "720p30" / f"{scene_name}.mp4",
+        media_root / "videos" / scene_file.stem / "1080p60" / f"{scene_name}.mp4",
+        media_root / "videos" / "scene_slide_*" / "480p15" / f"{scene_name}.mp4",
+    ]
+    
+    for path in possible_paths:
+        if path.exists():
+            print(f"[MANIM] ✅ Found output at: {path}")
+            return path
+    
+    # Strategy 2: Recursive search with exact name
+    if media_root.exists():
+        candidates = list(media_root.rglob(f"{scene_name}.mp4"))
+        if candidates:
+            latest = sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+            print(f"[MANIM] ✅ Found via recursive search: {latest}")
+            return latest
+    
+    # Strategy 3: Search in current working directory
+    cwd_media = Path.cwd() / "media"
+    if cwd_media.exists():
+        candidates = list(cwd_media.rglob(f"{scene_name}.mp4"))
+        if candidates:
+            latest = sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+            print(f"[MANIM] ✅ Found in CWD media: {latest}")
+            return latest
+    
+    # Strategy 4: Last resort - any SlideScene_*.mp4 created recently
+    all_media_paths = [media_root, cwd_media, PROJECT_ROOT]
+    for base in all_media_paths:
+        if not base.exists():
+            continue
+        candidates = list(base.rglob("SlideScene_*.mp4"))
+        if candidates:
+            # Filter by creation time (last 30 seconds)
+            recent = [p for p in candidates if (time.time() - p.stat().st_mtime) < 30]
+            if recent:
+                latest = sorted(recent, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+                print(f"[MANIM] ✅ Found recent file: {latest}")
+                return latest
+
+    # If we still haven't found it, print detailed debug info
+    print(f"\n[MANIM] ❌ ERROR: Could not find rendered mp4!")
+    print(f"  Scene name: {scene_name}")
+    print(f"  Scene file: {scene_file}")
+    print(f"  PROJECT_ROOT: {PROJECT_ROOT}")
+    print(f"  media_root exists: {media_root.exists()}")
+    
+    if media_root.exists():
+        print(f"\n  Contents of media/:")
+        for item in media_root.rglob("*"):
+            if item.is_file():
+                print(f"    - {item.relative_to(media_root)}")
+    
+    raise FileNotFoundError(f"[MANIM] Rendered mp4 not found after exhaustive search. Expected: {scene_name}.mp4")
 
 
 def generate_manim_clip(slide: dict, task_id: str, theme: str = "Minimalist", manim_quality: str = "low"):
@@ -92,13 +160,25 @@ def generate_manim_clip(slide: dict, task_id: str, theme: str = "Minimalist", ma
 
     cmd = ["manim", *qflags, str(scene_file), scene_name, "--transparent"]
     print(f"[MANIM] Rendering scene: {' '.join(cmd)}")
+    print(f"[MANIM] Working directory: {PROJECT_ROOT}")
 
     proc = subprocess.run(cmd, cwd=PROJECT_ROOT, capture_output=True, text=True)
+    
+    # Print Manim output for debugging
+    if proc.stdout:
+        print(f"[MANIM] STDOUT:\n{proc.stdout}")
+    if proc.stderr:
+        print(f"[MANIM] STDERR:\n{proc.stderr}")
+    
     if proc.returncode != 0:
-        raise RuntimeError(f"Manim render failed: {proc.stderr}")
+        raise RuntimeError(f"Manim render failed with code {proc.returncode}: {proc.stderr}")
 
     mp4 = _find_manim_output(scene_file, scene_name)
     dest = task_dir / f"slide_{int(slide.get('index', 0))}_manim.mp4"
-    mp4.replace(dest)
-    print(f"[MANIM] Generated clip saved: {dest}")
+    
+    # Copy instead of move to preserve original
+    import shutil
+    shutil.copy2(mp4, dest)
+    
+    print(f"[MANIM] ✅ Generated clip saved: {dest}")
     return dest.as_posix()
