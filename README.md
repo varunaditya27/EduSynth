@@ -4,11 +4,11 @@
 
 ### AI-Powered Educational Content Generation Platform
 
-**TEAM COGNICODE**  
- **Varun Aditya**  
- **Vishwaradhya S Aiholli**  
- **Tushar P**  
- **Dia Arora**
+**TEAM COGNICODE**
+**Varun Aditya**
+**Vishwaradhya S Aiholli**
+**Tushar P**
+**Dia Arora**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
@@ -57,11 +57,12 @@
 
 ---
 
-## 🏗️ Architecture
+## 🏧 Architecture
 
 ### System Overview
 
 ```mermaid
+%%{init: {'theme': 'dark', 'themeVariables': { 'primaryColor': '#009688', 'edgeLabelBackground':'#ffffff', 'tertiaryColor': '#2563EB'}}}%%
 graph TD
     A[Frontend - Next.js + React] -->|REST| B[Backend - FastAPI]
     B --> C[Gemini AI]
@@ -190,6 +191,7 @@ EduSynth/
 ### Content Generation Pipeline
 
 ```mermaid
+%%{init: {'theme': 'dark', 'sequence': {'actorFontFamily': 'monospace', 'messageFontFamily': 'monospace'}}}%%
 sequenceDiagram
     participant U as User
     participant F as Frontend
@@ -254,4 +256,3 @@ MIT License - See [LICENSE](LICENSE)
 * Supabase
 
 ---
-
