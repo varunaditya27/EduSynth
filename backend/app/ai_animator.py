@@ -32,9 +32,22 @@ def _write_scene_py(out_dir: Path, slide: dict, theme: str):
     points = slide.get("points", [])
     duration = float(slide.get("display_duration", slide.get("audio_duration", 5.0)))
 
-    steps = max(1, len(points))
-    total_for_steps = max(0.6 * duration, 0.1 * duration)
-    per_step = total_for_steps / max(1, steps)
+    # ✅ TIMING FIX: Calculate precise timings to match audio duration
+    title_anim_time = 0.8  # Time for title animation
+    wait_before_bullets = 0.2  # Small pause after title
+    wait_between_bullets = 0.15  # Pause between each bullet
+    final_wait = 0.3  # Hold at end
+    
+    # Calculate time available for bullet animations
+    num_bullets = len(points)
+    if num_bullets > 0:
+        available_time = duration - title_anim_time - wait_before_bullets - final_wait
+        available_time -= (num_bullets - 1) * wait_between_bullets  # Subtract wait times
+        per_bullet_time = max(0.4, available_time / num_bullets)  # At least 0.4s per bullet
+    else:
+        per_bullet_time = 0.5
+        # If no bullets, extend final wait to fill duration
+        final_wait = duration - title_anim_time - wait_before_bullets
 
     scene_name = f"SlideScene_{idx}"
     filename = f"scene_slide_{idx}.py"
@@ -51,25 +64,38 @@ class {scene_name}(Scene):
         # Configure transparent background
         self.camera.background_color = "#00000000"  # Transparent black
         
+        # ✅ SYNCED TIMING: Animation durations match audio exactly
+        # Total duration target: {duration}s
+        
         title = Text("{title}", font_size=48, color=WHITE)
         title.to_edge(UP)
-        self.play(Write(title), run_time=1)
+        self.play(Write(title), run_time={title_anim_time})
+        self.wait({wait_before_bullets})
 
         bullets = VGroup()
 '''
 
     for i, p in enumerate(points):
         text = p.replace('"', "'").replace("\n", " ")
-        code += f'        b{i} = Text("{text}", font_size=36)\n'
+        code += f'        b{i} = Text("{text}", font_size=36, color=WHITE)\n'
         code += f'        b{i}.next_to(title, DOWN, buff={1.0 + i*0.6})\n'
         code += f'        bullets.add(b{i})\n'
 
+    # Add bullet animations with precise timing
     for i in range(len(points)):
-        rt = max(0.6, per_step)
-        code += f'        self.wait(0.2)\n'
-        code += f'        self.play(FadeIn(b{i}), run_time={rt})\n'
+        if i > 0:
+            code += f'        self.wait({wait_between_bullets})\n'
+        code += f'        self.play(FadeIn(b{i}), run_time={per_bullet_time:.2f})\n'
 
-    code += f'        self.wait(0.5)\n'
+    # Final wait to reach exact duration
+    code += f'        self.wait({final_wait:.2f})  # Hold final frame\n'
+    
+    # Add timing verification comment
+    total_time = title_anim_time + wait_before_bullets
+    if len(points) > 0:
+        total_time += len(points) * per_bullet_time + (len(points) - 1) * wait_between_bullets
+    total_time += final_wait
+    code += f'        # Expected total: {total_time:.2f}s (target: {duration}s)\n'
 
     # Optional color tweak for dark themes
     if theme.lower() in ["chalkboard", "neon", "gradient"]:

@@ -69,32 +69,43 @@ def _is_dark_image(img: Image.Image) -> bool:
     return stat.mean[0] < 127
 
 
-def _draw_fallback_subtitle(base_img: Image.Image, text: str, font_size: int = 28):
-    """Fallback subtitle rendering using Pillow (Pillow>=10 safe)."""
+def _draw_fallback_subtitle(base_img: Image.Image, text: str, font_size: int = 24):
+    """Fallback subtitle rendering using Pillow (Pillow>=10 safe) - IMPROVED."""
     draw = ImageDraw.Draw(base_img)
     try:
         font = ImageFont.truetype("arial.ttf", font_size)
     except:
         font = ImageFont.load_default()
 
-    # Background box
-    box_height = 160
+    # ✅ IMPROVED: Better dimensions and positioning
+    box_height = 140
+    padding_bottom = 20
+    padding_sides = int(base_img.width * 0.05)  # 5% padding on each side
+    
     overlay = Image.new("RGBA", base_img.size, (0, 0, 0, 0))
     draw_overlay = ImageDraw.Draw(overlay)
-    y_start = base_img.height - box_height - 60
-    draw_overlay.rectangle([(0, y_start), (base_img.width, base_img.height)], fill=(0, 0, 0, 180))
+    y_start = base_img.height - box_height - padding_bottom
+    draw_overlay.rectangle([(0, y_start), (base_img.width, base_img.height)], fill=(0, 0, 0, 153))  # 60% opacity
     base_img = Image.alpha_composite(base_img.convert("RGBA"), overlay)
 
-    # Draw text (using textbbox)
+    # Draw text (using textbbox) with better wrapping
     draw = ImageDraw.Draw(base_img)  # ✅ Redraw after composite
-    lines = textwrap.fill(text, width=80).split("\n")
-    y_text = y_start + 20
+    
+    # ✅ Calculate optimal wrap width based on image width and font
+    chars_per_line = int((base_img.width - 2 * padding_sides) / (font_size * 0.6))
+    lines = textwrap.fill(text, width=chars_per_line).split("\n")
+    
+    # Center text vertically within the box
+    total_text_height = len(lines) * (font_size + 6)
+    y_text = y_start + (box_height - total_text_height) // 2
+    
     for line in lines:
         bbox = draw.textbbox((0, 0), line, font=font)
         w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
         x_text = (base_img.width - w) / 2
         draw.text((x_text, y_text), line, font=font, fill=(255, 255, 255))
         y_text += h + 6
+    
     return base_img.convert("RGB")
 
 
@@ -213,8 +224,10 @@ def assemble_video_from_slides(task_id: str, slides: list, theme: str = "Minimal
         print(f"  Narration: {narration[:60]}...")
         print(f"  Duration: {duration}s")
 
+        # ✅ Create background clip with EXACT duration to match audio
         bg_array = np.array(base_img)
         bg_clip = ImageClip(bg_array).set_duration(duration)
+        print(f"  [BACKGROUND] Set to {duration}s to match audio")
 
         # --- 1️⃣ Try Manim Animation ---
         clip = None
@@ -224,12 +237,32 @@ def assemble_video_from_slides(task_id: str, slides: list, theme: str = "Minimal
                 path = generate_manim_clip(s, task_id, theme)
                 
                 # ✅ Load MOV file with alpha channel
-                manim_clip = VideoFileClip(path, has_mask=True).subclip(0, min(duration, VideoFileClip(path).duration))
+                manim_video = VideoFileClip(path, has_mask=True)
+                manim_duration = manim_video.duration
+                
+                print(f"  [MANIM] Video duration: {manim_duration:.2f}s, Target: {duration:.2f}s")
+                
+                # ✅ TIMING SYNC: Handle duration mismatch
+                if abs(manim_duration - duration) > 0.5:
+                    print(f"  [MANIM] ⚠️ Duration mismatch detected! Adjusting...")
+                    if manim_duration > duration:
+                        # Manim is longer - trim it
+                        manim_clip = manim_video.subclip(0, duration)
+                        print(f"  [MANIM] Trimmed to {duration}s")
+                    else:
+                        # Manim is shorter - slow it down to match
+                        speed_factor = manim_duration / duration
+                        manim_clip = manim_video.fx(vfx.speedx, speed_factor)
+                        print(f"  [MANIM] Slowed down by {speed_factor:.2f}x to match audio")
+                else:
+                    manim_clip = manim_video
+                
+                # Ensure exact duration match
+                manim_clip = manim_clip.set_duration(duration)
                 
                 # ✅ CRITICAL: Composite Manim animation OVER themed background
-                # The MOV file has transparency, so it will show the background through
                 clip = CompositeVideoClip([bg_clip, manim_clip.set_position("center")])
-                print(f"  [MANIM] ✅ Success! Composited over {theme} background")
+                print(f"  [MANIM] ✅ Success! Composited over {theme} background (synced: {duration}s)")
             except Exception as e:
                 print(f"  [MANIM] ❌ Failed: {e}")
                 import traceback
@@ -293,24 +326,38 @@ def assemble_video_from_slides(task_id: str, slides: list, theme: str = "Minimal
                 import traceback
                 traceback.print_exc()
 
-        # --- 4️⃣ Subtitles ---
+        # --- 4️⃣ Subtitles (Fixed positioning and sizing) ---
         if narration.strip():
             try:
                 print(f"  [SUBTITLE] Rendering subtitles...")
+                
+                # ✅ FIXED: Better subtitle dimensions and positioning
+                subtitle_width = int(clip.w * 0.90)  # 90% of video width (more space)
+                subtitle_height = 140  # Slightly shorter to fit better
+                subtitle_y_position = clip.h - 160  # More padding from bottom
+                
+                # Create subtitle text with proper wrapping
                 sub = TextClip(
                     narration,
-                    fontsize=28,
+                    fontsize=24,  # Slightly smaller for better fit
                     color=text_color,
                     font="Arial",
                     method="caption",
-                    size=(clip.w - 160, 180),
+                    size=(subtitle_width, None),  # Auto-height based on content
                     align="center",
-                ).set_position(("center", clip.h - 120)).set_duration(duration)
+                ).set_position(("center", subtitle_y_position)).set_duration(duration)
 
-                bg_box = TextClip(" ", fontsize=32, size=(clip.w, 180), color="black")
-                bg_box = bg_box.set_opacity(0.55).set_position(("center", clip.h - 120)).set_duration(duration)
+                # Background box with proper dimensions
+                bg_box = TextClip(
+                    " ", 
+                    fontsize=24, 
+                    size=(clip.w, subtitle_height), 
+                    color="black"
+                )
+                bg_box = bg_box.set_opacity(0.6).set_position(("center", subtitle_y_position - 10)).set_duration(duration)
+                
                 clip = CompositeVideoClip([clip, bg_box, sub])
-                print(f"  [SUBTITLE] ✅ Added!")
+                print(f"  [SUBTITLE] ✅ Added! (width: {subtitle_width}px, height: {subtitle_height}px)")
             except Exception as e:
                 print(f"  [SUBTITLE] ❌ Failed with TextClip: {e}")
                 print(f"  [SUBTITLE] Using Pillow fallback...")
