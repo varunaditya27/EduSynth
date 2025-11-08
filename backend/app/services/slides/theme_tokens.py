@@ -59,6 +59,14 @@ def _base_fonts_corporate():
         "fallback_body": "Helvetica",
     }
 
+# NEW: shared spacing + header band config
+def _base_spacing():
+    return {"xs": 4, "sm": 8, "md": 12, "lg": 16, "xl": 24, "xxl": 32}
+
+def _base_band():
+    # height_em is multiplied by h2 size; gap pushes content clear of band
+    return {"height_em": 2.0, "gap_below_em": 0.9}
+
 def get_theme(key: str) -> dict:
     key = (key or "minimalist").lower()
 
@@ -69,6 +77,8 @@ def get_theme(key: str) -> dict:
             "radius": _base_radius(),
             "layout": _base_layout(),
             "margins": _base_margins(),
+            "spacing": _base_spacing(),      # NEW
+            "band": _base_band(),            # NEW
             "colors": {
                 "bg": "#1F3D2B",
                 "paper": "#233F2E",
@@ -96,6 +106,8 @@ def get_theme(key: str) -> dict:
             "radius": _base_radius(),
             "layout": _base_layout(),
             "margins": _base_margins(),
+            "spacing": _base_spacing(),      # NEW
+            "band": _base_band(),            # NEW
             "colors": {
                 "bg": "#F4F7FB",
                 "paper": "#FFFFFF",
@@ -123,6 +135,8 @@ def get_theme(key: str) -> dict:
         "radius": _base_radius(),
         "layout": _base_layout(),
         "margins": _base_margins(),
+        "spacing": _base_spacing(),          # NEW
+        "band": _base_band(),                # NEW
         "colors": {
             "bg": "#FFFFFF",
             "paper": "#FFFFFF",
@@ -142,3 +156,4 @@ def get_theme(key: str) -> dict:
             "max_branches": 10,
         },
     }
+    

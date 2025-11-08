@@ -10,6 +10,11 @@ class GenerateSlidesRequest(BaseModel):
     theme: Literal["minimalist", "chalkboard", "corporate"]
     preferred_format: Literal["pptx", "pdf"] = "pptx"
     language: str = Field(default="en", min_length=2, max_length=10)
+    
+    # Expanded content generation preferences
+    generate_expanded_content: bool = False
+    expanded_content_level: Optional[Literal["basic", "detailed", "comprehensive"]] = "detailed"
+    force_refresh_content: bool = False
 
 class JobQueuedResponse(BaseModel):
     """Response after successfully queuing a generation job"""

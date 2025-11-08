@@ -211,7 +211,7 @@ def draw_footer(
     # folio text
     c.setFont(theme["fonts"]["body"], sizes["footer"])
     c.setFillColor(HexColor(colors["muted"]))
-    folio = f"{plan.topic} • {page_index}/{total_pages} • {plan.theme}"
+    folio = f"{plan.topic} • {page_index}/{total_pages}"
     tw = c.stringWidth(folio, theme["fonts"]["body"], sizes["footer"])
     
     theme_key = plan.theme.lower()

@@ -276,7 +276,6 @@ Notes:
     print(f"Topic:       {plan.topic}")
     print(f"Slides:      {len(plan.slides)}")
     print(f"Duration:    {plan.duration_minutes} minutes")
-    print(f"Theme:       {plan.theme.upper()}")
     print(f"Orientation: {plan.orientation or 'auto'}")
     if plan.device_preset:
         print(f"Preset:      {plan.device_preset}")
@@ -320,9 +319,9 @@ Notes:
         output_dir = output_path.parent
     else:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = (BACKEND_ROOT / "artifacts" / ts).resolve()
-        suffix = f"_{plan.device_preset}" if plan.device_preset else f"_{plan.orientation or 'auto'}"
-        output_path = output_dir / f"{plan.theme}{suffix}_notes.pdf"
+    output_dir = (BACKEND_ROOT / "artifacts" / ts).resolve()
+    suffix = f"_{plan.device_preset}" if plan.device_preset else f"_{plan.orientation or 'auto'}"
+    output_path = output_dir / f"notes{suffix}.pdf"
 
     # Ensure directory and write
     try:

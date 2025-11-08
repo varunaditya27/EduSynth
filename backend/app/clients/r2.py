@@ -27,23 +27,23 @@ class R2Client:
         """
         if not all([
             settings.CLOUDFLARE_S3_ENDPOINT,
-            settings.CLOUDFLARE_S3_ACCESS_KEY,
-            settings.CLOUDFLARE_S3_SECRET_KEY,
-            settings.CLOUDFLARE_S3_BUCKET,
+            settings.CLOUDFLARE_S3_ACCESS_KEY_ID,
+            settings.CLOUDFLARE_S3_SECRET_ACCESS_KEY,
+            settings.CLOUDFLARE_S3_BUCKET_NAME,
         ]):
             raise ValueError(
                 "Missing required R2 configuration. Check CLOUDFLARE_S3_* environment variables."
             )
         
-        self.bucket = settings.CLOUDFLARE_S3_BUCKET
+        self.bucket = settings.CLOUDFLARE_S3_BUCKET_NAME
         self.endpoint = settings.CLOUDFLARE_S3_ENDPOINT
         
         try:
             self.client = boto3.client(
                 "s3",
                 endpoint_url=self.endpoint,
-                aws_access_key_id=settings.CLOUDFLARE_S3_ACCESS_KEY,
-                aws_secret_access_key=settings.CLOUDFLARE_S3_SECRET_KEY,
+                aws_access_key_id=settings.CLOUDFLARE_S3_ACCESS_KEY_ID,
+                aws_secret_access_key=settings.CLOUDFLARE_S3_SECRET_ACCESS_KEY,
                 config=BotoConfig(
                     signature_version="s3v4",
                     s3={"addressing_style": "path"},

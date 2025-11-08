@@ -1,13 +1,19 @@
 """
-Slide Deck API routes with PPTX and PDF export.
+Slide Deck API routes with enhanced PPTX and PDF export.
+Supports adaptive layouts, device presets, orientation settings, and dual content generation.
 """
+
 import logging
+import os
 import uuid
 from typing import List, Literal, Optional
 
+import google.generativeai as genai
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
+from app.services.slides.dual_content import DualContentGenerator
 
 from app.deps.auth import CurrentUser, get_current_user
 from app.models.slides import (
@@ -45,6 +51,9 @@ class ExportResponse(BaseModel):
     slide_count: int
     download_url: str
     thumbnail_url: Optional[str] = None
+    # Adaptive layout metadata
+    orientation: Optional[str] = None
+    device_preset: Optional[str] = None
 
 
 # ===========================
@@ -58,14 +67,54 @@ async def generate_slides(
 ) -> JobQueuedResponse:
     """
     Queue a new slide deck generation job.
-    
-    Args:
-        request: Slide deck configuration
-        user: Authenticated user
-        
-    Returns:
-        Job ID and queued status
+
+    If the incoming model supports expanded-generation flags, we honor them.
+    Otherwise we skip gracefully (no AttributeError).
     """
+    # Expanded content flags (guarded)
+    want_expanded = getattr(request, "generate_expanded_content", False)
+    expanded_level = getattr(request, "expanded_content_level", "detailed")
+
+    # If expanded content is requested, configure Gemini and enrich slides
+    if want_expanded:
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise HTTPException(
+                status_code=500,
+                detail="GEMINI_API_KEY is missing in environment."
+            )
+        genai.configure(api_key=api_key)
+        # Use a current model; keep in sync with your other generators
+        model = genai.GenerativeModel("gemini-1.5-pro")
+        dual_generator = DualContentGenerator(model=model, level=expanded_level)
+
+        # Some request models may or may not include 'slides'.
+        # If slides exist, enrich them. Otherwise the downstream
+        # queue worker will generate content from topic/audience.
+        if hasattr(request, "slides") and request.slides:
+            for slide in request.slides:
+                # 'slide' may be a BaseModel or dict; normalize access
+                title = getattr(slide, "title", None) or slide.get("title")
+                points = getattr(slide, "points", None) or slide.get("points") or []
+                # Only force refresh if explicitly requested or content missing
+                force_refresh = getattr(request, "force_refresh_content", False)
+                expanded = await dual_generator.generate_dual_content(
+                    topic=request.topic,
+                    force_refresh=force_refresh,
+                    title=title,
+                    points=points,
+                )
+                # write back safely (supports BaseModel or dict)
+                if hasattr(slide, "__setattr__"):
+                    setattr(slide, "expanded_content", expanded["expanded_content"])
+                    setattr(slide, "key_concepts", expanded["key_concepts"])
+                    setattr(slide, "supporting_details", expanded["supporting_details"])
+                else:
+                    slide["expanded_content"] = expanded["expanded_content"]
+                    slide["key_concepts"] = expanded["key_concepts"]
+                    slide["supporting_details"] = expanded["supporting_details"]
+
+    # Queue generation job with whatever we’ve got
     job_id = await enqueue_generation_job(user.user_id, request)
     return JobQueuedResponse(job_id=job_id, status="QUEUED")
 
@@ -75,16 +124,6 @@ async def get_job(
     job_id: str,
     user: CurrentUser = Depends(get_current_user),
 ) -> JobStatusResponse:
-    """
-    Get the status of a generation job.
-    
-    Args:
-        job_id: Job identifier
-        user: Authenticated user
-        
-    Returns:
-        Current job status and progress
-    """
     status_data = await get_job_status(user.user_id, job_id)
     return JobStatusResponse(**status_data)
 
@@ -94,16 +133,6 @@ async def get_deck_info(
     deck_id: str,
     user: CurrentUser = Depends(get_current_user),
 ) -> DeckResponse:
-    """
-    Get information about a completed slide deck.
-    
-    Args:
-        deck_id: Deck identifier
-        user: Authenticated user
-        
-    Returns:
-        Deck metadata and download URLs
-    """
     deck_data = await get_deck(user.user_id, deck_id)
     return DeckResponse(**deck_data)
 
@@ -117,67 +146,46 @@ async def export_pptx(
     plan: LecturePlan,
     user: CurrentUser = Depends(get_current_user),
 ) -> ExportResponse:
-    """
-    Export lecture plan to PPTX with cover thumbnail.
-    
-    Builds a PowerPoint presentation from the lecture plan, uploads to R2,
-    and returns presigned download URLs.
-    
-    Args:
-        plan: Lecture plan with slides and metadata
-        user: Authenticated user
-        
-    Returns:
-        Export metadata with download URLs
-        
-    Raises:
-        HTTPException: If export or upload fails
-    """
     error_id = str(uuid.uuid4())[:8]
-    
+
     try:
-        # Generate unique deck ID
         deck_id = str(uuid.uuid4())
-        
-        # Get theme configuration
         theme = get_theme(plan.theme)
-        
-        # Build PPTX
-        logger.info(f"Building PPTX for deck {deck_id}: {plan.topic}")
+
+        logger.info(
+            f"Building PPTX for deck {deck_id}: {plan.topic} "
+            f"(preset={plan.device_preset}, orientation={plan.orientation})"
+        )
         pptx_bytes = build_pptx(plan, theme)
-        
-        # Build cover thumbnail
-        logger.info(f"Rendering cover thumbnail for deck {deck_id}")
-        thumb_bytes = render_cover_thumbnail(plan.topic, theme)
-        
+
+        # Cover thumbnail
+        thumb_bytes = render_cover_thumbnail(plan.topic, theme, size=(1280, 720))
+
         # Upload to R2
         r2_client = get_r2_client()
-        
         pptx_key = f"decks/{deck_id}/deck.pptx"
         thumb_key = f"decks/{deck_id}/cover.png"
-        
-        logger.info(f"Uploading PPTX to R2: {pptx_key}")
+
         r2_client.put_object(
             pptx_key,
             pptx_bytes,
             "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            metadata={"topic": plan.topic, "theme": plan.theme},
+            metadata={
+                "topic": plan.topic,
+                "orientation": plan.orientation or "auto",
+                "device_preset": plan.device_preset or "desktop",
+            },
         )
-        
-        logger.info(f"Uploading thumbnail to R2: {thumb_key}")
         r2_client.put_object(
             thumb_key,
             thumb_bytes,
             "image/png",
             metadata={"topic": plan.topic},
         )
-        
-        # Generate presigned URLs (15 minutes expiry)
+
         download_url = r2_client.generate_presigned_url(pptx_key, expires_in=900)
         thumbnail_url = r2_client.generate_presigned_url(thumb_key, expires_in=900)
-        
-        logger.info(f"PPTX export complete for deck {deck_id}")
-        
+
         return ExportResponse(
             deck_id=deck_id,
             format="pptx",
@@ -186,30 +194,29 @@ async def export_pptx(
             slide_count=len(plan.slides) + 1,  # +1 for title slide
             download_url=download_url,
             thumbnail_url=thumbnail_url,
+            orientation=plan.orientation,
+            device_preset=plan.device_preset,
         )
-        
+
     except ValueError as e:
-        # Configuration or validation errors
         logger.error(f"[{error_id}] Export validation error: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Export validation failed: {str(e)} (error_id: {error_id})",
         )
-    
+
     except RuntimeError as e:
-        # R2 upload/URL generation errors
         logger.error(f"[{error_id}] R2 operation failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Storage operation failed (error_id: {error_id})",
         )
-    
+
     except Exception as e:
-        # Unexpected errors
-        logger.exception(f"[{error_id}] Unexpected error during PPTX export: {e}")
+        logger.exception(f"[{error_id}] Unexpected error during export: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to export PPTX (error_id: {error_id})",
+            detail=f"Failed to export document (error_id: {error_id})",
         )
 
 
@@ -217,86 +224,99 @@ async def export_pptx(
 async def export_pdf_notes(
     plan: LecturePlan,
     user: CurrentUser = Depends(get_current_user),
+    include_expanded_content: bool = False
 ) -> ExportResponse:
-    """
-    Export lecture plan to PDF with cheat-sheet and lecture notes.
-    
-    Builds a PDF with mindmap, flowchart, and detailed notes, uploads to R2,
-    and returns presigned download URL.
-    
-    Args:
-        plan: Lecture plan with slides and metadata
-        user: Authenticated user
-        
-    Returns:
-        Export metadata with download URL
-        
-    Raises:
-        HTTPException: If export or upload fails
-    """
     error_id = str(uuid.uuid4())[:8]
-    
+
     try:
-        # Generate unique deck ID
         deck_id = str(uuid.uuid4())
-        
-        # Get theme configuration
         theme = get_theme(plan.theme)
-        
+
+        want_expanded = include_expanded_content
+        logger.info(
+            f"Building PDF for deck {deck_id}: {plan.topic} "
+            f"(preset={plan.device_preset}, orientation={plan.orientation}, "
+            f"expanded={want_expanded})"
+        )
+
+        # Only generate if missing or empty (not just attribute exists)
+        if want_expanded:
+            missing = any(
+                not getattr(s, "expanded_content", None) for s in plan.slides
+            )
+            if missing:
+                api_key = os.getenv("GEMINI_API_KEY")
+                if not api_key:
+                    raise HTTPException(
+                        status_code=500,
+                        detail="GEMINI_API_KEY is missing in environment."
+                    )
+                genai.configure(api_key=api_key)
+                model = genai.GenerativeModel("gemini-1.5-pro")
+                level = getattr(plan, "expanded_content_level", "detailed")
+                dual_generator = DualContentGenerator(model=model, level=level)
+
+                for slide in plan.slides:
+                    if not getattr(slide, "expanded_content", None):
+                        expanded = await dual_generator.generate_dual_content(
+                            topic=plan.topic,
+                            title=slide.title,
+                            points=slide.points,
+                        )
+                        slide.expanded_content = expanded["expanded_content"]
+                        slide.key_concepts = expanded["key_concepts"]
+                        slide.supporting_details = expanded["supporting_details"]
+
         # Build PDF
-        logger.info(f"Building PDF for deck {deck_id}: {plan.topic}")
-        pdf_bytes = build_pdf(plan, theme)
-        
+        if want_expanded:
+            from app.services.slides.pdf_enhanced import build_enhanced_pdf
+            pdf_bytes = build_enhanced_pdf(plan, theme)
+        else:
+            pdf_bytes = build_pdf(plan, theme)
+
         # Upload to R2
         r2_client = get_r2_client()
-        
         pdf_key = f"decks/{deck_id}/notes.pdf"
-        
-        logger.info(f"Uploading PDF to R2: {pdf_key}")
+
         r2_client.put_object(
             pdf_key,
             pdf_bytes,
             "application/pdf",
             metadata={
                 "topic": plan.topic,
-                "theme": plan.theme,
                 "page_count": str(len(plan.slides) + 2),
+                "orientation": plan.orientation or "auto",
+                "device_preset": plan.device_preset or "desktop",
             },
         )
-        
-        # Generate presigned URL (15 minutes expiry)
+
         download_url = r2_client.generate_presigned_url(pdf_key, expires_in=900)
-        
-        logger.info(f"PDF export complete for deck {deck_id}")
-        
+
         return ExportResponse(
             deck_id=deck_id,
             format="pdf",
             topic=plan.topic,
             theme=plan.theme,
-            slide_count=len(plan.slides) + 2,  # +2 for cheat-sheet pages
+            slide_count=len(plan.slides) + 2,  # +2 for splash + flow
             download_url=download_url,
-            thumbnail_url=None,  # No thumbnail for PDF
+            thumbnail_url=None,
+            orientation=plan.orientation,
+            device_preset=plan.device_preset,
         )
-        
+
     except ValueError as e:
-        # Configuration or validation errors
         logger.error(f"[{error_id}] PDF export validation error: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"PDF export validation failed: {str(e)} (error_id: {error_id})",
         )
-    
     except RuntimeError as e:
-        # R2 upload/URL generation errors
         logger.error(f"[{error_id}] R2 operation failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Storage operation failed (error_id: {error_id})",
         )
-    
     except Exception as e:
-        # Unexpected errors
         logger.exception(f"[{error_id}] Unexpected error during PDF export: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -306,10 +326,31 @@ async def export_pdf_notes(
 
 @router.get("/themes", response_model=List[str])
 async def list_themes() -> List[str]:
-    """
-    Get available presentation themes.
-    
-    Returns:
-        List of theme identifiers
-    """
     return ["minimalist", "chalkboard", "corporate"]
+
+
+@router.get("/presets", response_model=List[dict])
+async def list_device_presets() -> List[dict]:
+    return [
+        {
+            "id": "desktop",
+            "name": "Desktop (16:9)",
+            "aspect_ratio": "16:9",
+            "dimensions": '13.33" × 7.5"',
+            "recommended_for": "Presentations, online meetings",
+        },
+        {
+            "id": "tablet",
+            "name": "Tablet (4:3)",
+            "aspect_ratio": "4:3",
+            "dimensions": '10" × 7.5"',
+            "recommended_for": "Classic projectors, iPads",
+        },
+        {
+            "id": "mobile",
+            "name": "Mobile (9:16)",
+            "aspect_ratio": "9:16",
+            "dimensions": '7.5" × 13.33"',
+            "recommended_for": "Phone viewing, stories",
+        },
+    ]

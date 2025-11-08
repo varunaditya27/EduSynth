@@ -1,5 +1,5 @@
 {
-  "topic": "Binary Trees — From Zero to Interview",
+  "topic": "Binary Trees : From Zero to Interview",
   "language": "en",
   "theme": "chalkboard",
   "duration_minutes": 25,
@@ -30,9 +30,7 @@
       "points": [
         "Balanced trees keep operations near O(log n) by ensuring height stays small, which minimizes the path length between the root and leaves.",
         "Skewed trees (e.g., every node only has a right child) can degrade lookups and inserts toward O(n) because the structure behaves like a linked list.",
-        "Practical implementations often enforce balance (AVL, Red-Black) or use heaps/tries depending on the access pattern and required invariants.",
-        "Balanced trees keep operations near O(log n) by ensuring height stays small, which minimizes the path length between the root and leaves.",
-        "Skewed trees (e.g., every node only has a right child) can degrade lookups and inserts toward O(n) because the structure behaves like a linked list."
+        "Practical implementations often enforce balance (AVL, Red-Black) or use heaps/tries depending on the access pattern and required invariants."
       ],
       "diagram": "compare"
     },
