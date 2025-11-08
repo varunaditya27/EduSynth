@@ -88,9 +88,13 @@ def _upload_file_to_r2(local_path: Path, s3_key: str) -> str:
     bucket = settings.CLOUDFLARE_S3_BUCKET_NAME
     access_key = settings.CLOUDFLARE_S3_ACCESS_KEY_ID
     secret_key = settings.CLOUDFLARE_S3_SECRET_ACCESS_KEY
+    public_url = settings.CLOUDFLARE_R2_PUBLIC_URL
 
     if not all([endpoint, bucket, access_key, secret_key]):
         raise RuntimeError("Missing Cloudflare R2 configuration. Check .env.")
+    
+    if not public_url:
+        raise RuntimeError("Missing CLOUDFLARE_R2_PUBLIC_URL in .env. This is required for public video access.")
 
     s3 = boto3.client(
         "s3",
@@ -108,20 +112,8 @@ def _upload_file_to_r2(local_path: Path, s3_key: str) -> str:
         ExtraArgs={'ACL': 'public-read', 'ContentType': 'video/mp4'}
     )
 
-    # Construct the public R2 URL
-    # Format: https://<bucket-name>.<account-id>.r2.cloudflarestorage.com/<s3-key>
-    # Or if you have a custom domain: https://your-domain.com/<s3-key>
-    # For now, construct from endpoint
-    r2_public_url = getattr(settings, "CLOUDFLARE_R2_PUBLIC_URL", None)
-    if r2_public_url:
-        return f"{r2_public_url.rstrip('/')}/{s3_key}"
-    
-    # Fallback: construct from endpoint
-    # Remove the API endpoint and construct public URL
-    # Cloudflare R2 endpoint format: https://<account-id>.r2.cloudflarestorage.com
-    # Public URL format: https://pub-<hash>.<region>.r2.dev/<key>
-    # Or: https://<bucket>.r2.cloudflarestorage.com/<key>
-    return f"{endpoint.rstrip('/')}/{s3_key}"
+    # Return the public R2 URL using the configured public URL from .env
+    return f"{public_url.rstrip('/')}/{s3_key}"
 
 
 @app.get("/status/{task_id}")
@@ -146,7 +138,7 @@ def get_status(task_id: str):
         final_video = final_dir / f"{task_id}_merged.mp4"
         
         if final_video.exists():
-            # Video is complete - construct public R2 URL
+            # Video is complete - get public R2 URL from meta.json
             try:
                 # Read meta.json to get the actual uploaded URL
                 meta_file = OUTDIR / task_id / "meta.json"
@@ -163,26 +155,31 @@ def get_status(task_id: str):
                             "message": "Video generation complete"
                         }
                 
-                # Fallback: construct public URL from settings
-                r2_public_url = getattr(settings, "CLOUDFLARE_R2_PUBLIC_URL", None)
-                if r2_public_url:
+                # Fallback: construct public URL from settings if meta.json doesn't exist
+                public_url = settings.CLOUDFLARE_R2_PUBLIC_URL
+                if public_url:
                     # Use the same s3_key format as in assemble_background_task
                     s3_key = f"edusynth/{task_id}/{task_id}_merged.mp4"
-                    video_url = f"{r2_public_url.rstrip('/')}/{s3_key}"
+                    video_url = f"{public_url.rstrip('/')}/{s3_key}"
+                    
+                    return {
+                        "task_id": task_id,
+                        "status": "completed",
+                        "progress": 100,
+                        "topic": topic,
+                        "videoUrl": video_url,
+                        "message": "Video generation complete"
+                    }
                 else:
-                    # Last resort: use endpoint (but this won't be publicly accessible)
-                    endpoint = settings.CLOUDFLARE_S3_ENDPOINT
-                    s3_key = f"edusynth/{task_id}/{task_id}_merged.mp4"
-                    video_url = f"{endpoint.rstrip('/')}/{s3_key}"
-                
-                return {
-                    "task_id": task_id,
-                    "status": "completed",
-                    "progress": 100,
-                    "topic": topic,
-                    "videoUrl": video_url,
-                    "message": "Video generation complete"
-                }
+                    # If no public URL configured, return local file path
+                    return {
+                        "task_id": task_id,
+                        "status": "completed",
+                        "progress": 100,
+                        "topic": topic,
+                        "videoUrl": f"/output/{task_id}/final/{task_id}_merged.mp4",
+                        "message": "Video generation complete (local - no public URL configured)"
+                    }
             except Exception as e:
                 # If R2 URL construction fails, return local file
                 return {
@@ -191,7 +188,7 @@ def get_status(task_id: str):
                     "progress": 100,
                     "topic": topic,
                     "videoUrl": f"/output/{task_id}/final/{task_id}_merged.mp4",
-                    "message": "Video generation complete (local)"
+                    "message": f"Video generation complete (local - error: {str(e)})"
                 }
         
         # Check if video is being assembled (exists in video directory but not final)

@@ -124,7 +124,7 @@ export default function LectureForm() {
         <label className="block text-sm font-medium">
           Output Format
         </label>
-        <div className="grid md:grid-cols-3 gap-4">
+        <div className="grid md:grid-cols-2 gap-4">
           <button
             type="button"
             onClick={() => setFormData({ ...formData, format: 'video' })}
@@ -151,20 +151,6 @@ export default function LectureForm() {
             <div className="text-lg font-semibold mb-1">✨ Interactive</div>
             <div className="text-sm text-muted-foreground">
               Step-by-step animated experience
-            </div>
-          </button>
-          <button
-            type="button"
-            onClick={() => setFormData({ ...formData, format: 'both' })}
-            className={`p-4 rounded-lg border-2 transition-all ${
-              formData.format === 'both'
-                ? 'border-primary bg-primary/10'
-                : 'border-white/20 hover:border-white/40'
-            }`}
-          >
-            <div className="text-lg font-semibold mb-1">🎬 Both</div>
-            <div className="text-sm text-muted-foreground">
-              Video + Interactive versions
             </div>
           </button>
         </div>
