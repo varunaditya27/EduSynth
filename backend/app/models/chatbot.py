@@ -54,6 +54,11 @@ class ChatRequest(BaseModel):
         default=None,
         description="Optional lecture ID for retrieving context"
     )
+    
+    lecture_context: Optional[dict] = Field(
+        default=None,
+        description="Lecture context (slides, topic, etc.) - auto-populated if lecture_id provided"
+    )
 
 
 class ChatResponse(BaseModel):
