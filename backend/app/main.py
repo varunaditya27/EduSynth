@@ -259,19 +259,18 @@ async def generate(req: GenerateRequest, background_tasks: BackgroundTasks):
         
         # Create lecture record in database
         db = await get_client()
-        await db.lecture.create(
-            data={
-                "id": task_id,
-                "topic": req.topic,
-                "targetAudience": req.audience,
-                "desiredLength": minutes,
-                "visualTheme": visual_theme,
-                "videoStatus": VideoStatus.GENERATING_CONTENT,
-                "processingStartedAt": datetime.utcnow(),
-                "userId": None,  # Optional for system-generated lectures
-                "hasInteractive": False
-            }
-        )
+        lecture_data = {
+            "id": task_id,
+            "topic": req.topic,
+            "targetAudience": req.audience,
+            "desiredLength": minutes,
+            "visualTheme": visual_theme,
+            "videoStatus": VideoStatus.GENERATING_CONTENT,
+            "processingStartedAt": datetime.utcnow(),
+            "hasInteractive": False
+        }
+        # Don't include userId if it's None - let the database handle the default
+        await db.lecture.create(data=lecture_data)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
 
