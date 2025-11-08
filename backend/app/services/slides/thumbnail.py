@@ -6,7 +6,7 @@ from PIL import Image, ImageDraw, ImageFont
 from typing import Tuple, Dict, Any
 import random
 
-from .theme_tokens import hex_to_rgb
+from .diagram_draw import hex_to_rgb
 
 
 def render_cover_thumbnail(

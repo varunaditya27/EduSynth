@@ -1,230 +1,175 @@
-"""
-Pillow-based diagram utilities for enhanced PDF visuals.
-"""
-from io import BytesIO
-from typing import Tuple
+from __future__ import annotations
 
-from PIL import Image, ImageDraw, ImageFont
+import math
+from typing import List, Tuple
+
+from reportlab.lib.colors import HexColor
 from reportlab.pdfgen import canvas
 
+# ---- color utils ----
 
-def radial_gradient_png(
-    size: Tuple[int, int],
-    inner: str,
-    outer: str
-) -> bytes:
-    """
-    Generate a radial gradient as PNG bytes.
-    
-    Args:
-        size: (width, height) in pixels
-        inner: Inner color hex string (e.g., "#4A90E2")
-        outer: Outer color hex string (e.g., "#FFFFFF")
-        
-    Returns:
-        PNG image bytes
-    """
-    width, height = size
-    img = Image.new("RGBA", (width, height), (255, 255, 255, 0))
-    draw = ImageDraw.Draw(img)
-    
-    # Parse colors
-    inner_rgb = hex_to_rgb(inner)
-    outer_rgb = hex_to_rgb(outer)
-    
-    center_x, center_y = width // 2, height // 2
-    max_radius = min(width, height) // 2
-    
-    # Draw concentric circles with interpolated colors
-    steps = 50
-    for i in range(steps, 0, -1):
-        ratio = i / steps
-        radius = int(max_radius * ratio)
-        
-        # Interpolate color
-        r = int(outer_rgb[0] + (inner_rgb[0] - outer_rgb[0]) * ratio)
-        g = int(outer_rgb[1] + (inner_rgb[1] - outer_rgb[1]) * ratio)
-        b = int(outer_rgb[2] + (inner_rgb[2] - outer_rgb[2]) * ratio)
-        alpha = int(255 * (0.3 + 0.7 * ratio))  # Fade out at edges
-        
-        bbox = [
-            center_x - radius,
-            center_y - radius,
-            center_x + radius,
-            center_y + radius,
-        ]
-        draw.ellipse(bbox, fill=(r, g, b, alpha))
-    
-    # Save to bytes
-    buffer = BytesIO()
-    img.save(buffer, format="PNG")
-    buffer.seek(0)
-    return buffer.read()
+def _clamp01(x: float) -> float:
+    return max(0.0, min(1.0, x))
 
+def _hex_to_rgb_tuple(hex_color: str) -> Tuple[int, int, int]:
+    hc = hex_color.lstrip("#")
+    return tuple(int(hc[i:i+2], 16) for i in (0, 2, 4))
 
-def node_bubble_png(
-    text: str,
-    fill_hex: str,
-    text_hex: str,
-    size: Tuple[int, int] = (120, 60)
-) -> bytes:
-    """
-    Generate a rounded bubble with text as PNG.
-    
-    Args:
-        text: Text to display
-        fill_hex: Bubble fill color hex
-        text_hex: Text color hex
-        size: (width, height) in pixels
-        
-    Returns:
-        PNG image bytes
-    """
-    width, height = size
-    img = Image.new("RGBA", (width, height), (255, 255, 255, 0))
-    draw = ImageDraw.Draw(img)
-    
-    # Parse colors
-    fill_rgb = hex_to_rgb(fill_hex)
-    text_rgb = hex_to_rgb(text_hex)
-    
-    # Draw rounded rectangle (ellipse approximation)
-    corner_radius = min(width, height) // 4
-    draw.rounded_rectangle(
-        [(0, 0), (width - 1, height - 1)],
-        radius=corner_radius,
-        fill=(*fill_rgb, 255)
-    )
-    
-    # Draw text (centered)
-    try:
-        font = ImageFont.truetype("Arial", size=14)
-    except:
-        font = ImageFont.load_default()
-    
-    # Get text bounding box
-    bbox = draw.textbbox((0, 0), text, font=font)
-    text_width = bbox[2] - bbox[0]
-    text_height = bbox[3] - bbox[1]
-    
-    text_x = (width - text_width) // 2
-    text_y = (height - text_height) // 2
-    
-    draw.text((text_x, text_y), text, fill=(*text_rgb, 255), font=font)
-    
-    # Save to bytes
-    buffer = BytesIO()
-    img.save(buffer, format="PNG")
-    buffer.seek(0)
-    return buffer.read()
+def hex_to_rgb(hex_color: str) -> Tuple[float, float, float]:
+    r, g, b = _hex_to_rgb_tuple(hex_color)
+    return (r/255.0, g/255.0, b/255.0)
 
+def lighten(hex_color: str, amount: float) -> str:
+    r, g, b = _hex_to_rgb_tuple(hex_color)
+    r = int(_clamp01(r/255.0 + amount) * 255)
+    g = int(_clamp01(g/255.0 + amount) * 255)
+    b = int(_clamp01(b/255.0 + amount) * 255)
+    return f"#{r:02X}{g:02X}{b:02X}"
 
-def hex_to_rgb(hex_color: str) -> Tuple[int, int, int]:
-    """
-    Convert hex color string to RGB tuple.
-    
-    Args:
-        hex_color: Color in hex format (e.g., "#4A90E2" or "4A90E2")
-        
-    Returns:
-        (r, g, b) tuple with values 0-255
-    """
-    hex_color = hex_color.lstrip("#")
-    
-    if len(hex_color) == 3:
-        # Short form: #RGB -> #RRGGBB
-        hex_color = "".join([c * 2 for c in hex_color])
-    
-    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+def darken(hex_color: str, amount: float) -> str:
+    r, g, b = _hex_to_rgb_tuple(hex_color)
+    r = int(_clamp01(r/255.0 - amount) * 255)
+    g = int(_clamp01(g/255.0 - amount) * 255)
+    b = int(_clamp01(b/255.0 - amount) * 255)
+    return f"#{r:02X}{g:02X}{b:02X}"
 
+# ---- geometry helpers ----
 
-def measure_text(c: canvas.Canvas, text: str, font_name: str, font_size: float) -> float:
-    """
-    Measure the width of text in points.
-    
-    Args:
-        c: ReportLab canvas
-        text: Text to measure
-        font_name: Font name (e.g., "Helvetica-Bold")
-        font_size: Font size in points
-        
-    Returns:
-        Text width in points
-    """
-    return c.stringWidth(text, font_name, font_size)
+def polar_to_xy(cx: float, cy: float, r: float, theta_rad: float) -> Tuple[float, float]:
+    return (cx + r * math.cos(theta_rad), cy + r * math.sin(theta_rad))
 
+def layout_radial(nodes: List[dict], radius: float, relax_iters: int = 4) -> List[Tuple[float, float, float]]:
+    """Return list of (x_rel, y_rel, theta) after light collision-aware relaxation."""
+    n = max(1, len(nodes))
+    base = [2*math.pi * i / n - math.pi/2 for i in range(n)]
+    coords = []
+    for i, theta in enumerate(base):
+        w = nodes[i]["width"]; h = nodes[i]["height"]
+        x, y = radius*math.cos(theta), radius*math.sin(theta)
+        coords.append([x, y, theta, w, h])
 
-def rounded_rect(
-    c: canvas.Canvas,
-    x: float,
-    y: float,
-    width: float,
-    height: float,
-    radius: float,
-    fill: bool = True,
-    stroke: bool = False
-) -> None:
-    """
-    Draw a rounded rectangle on the canvas.
-    
-    Args:
-        c: ReportLab canvas
-        x: Bottom-left x coordinate
-        y: Bottom-left y coordinate
-        width: Rectangle width
-        height: Rectangle height
-        radius: Corner radius
-        fill: Whether to fill the shape
-        stroke: Whether to stroke the outline
-    """
-    # Clamp radius
-    radius = min(radius, width / 2, height / 2)
-    
-    path = c.beginPath()
-    
-    # Start at top-left corner (after curve)
-    path.moveTo(x + radius, y + height)
-    
-    # Top edge
-    path.lineTo(x + width - radius, y + height)
-    
-    # Top-right corner
-    path.arcTo(
-        x + width - 2 * radius, y + height - 2 * radius,
-        x + width, y + height,
-        startAng=0, extent=90
-    )
-    
-    # Right edge
-    path.lineTo(x + width, y + radius)
-    
-    # Bottom-right corner
-    path.arcTo(
-        x + width - 2 * radius, y,
-        x + width, y + 2 * radius,
-        startAng=270, extent=90
-    )
-    
-    # Bottom edge
-    path.lineTo(x + radius, y)
-    
-    # Bottom-left corner
-    path.arcTo(
-        x, y,
-        x + 2 * radius, y + 2 * radius,
-        startAng=180, extent=90
-    )
-    
-    # Left edge
-    path.lineTo(x, y + height - radius)
-    
-    # Top-left corner
-    path.arcTo(
-        x, y + height - 2 * radius,
-        x + 2 * radius, y + height,
-        startAng=90, extent=90
-    )
-    
-    path.close()
-    
-    c.drawPath(path, stroke=1 if stroke else 0, fill=1 if fill else 0)
+    # very light repel to prevent overlaps
+    for _ in range(relax_iters):
+        for i in range(n):
+            xi, yi, thetai, wi, hi = coords[i]
+            ri = max(wi, hi) * 0.6
+            for j in range(i+1, n):
+                xj, yj, thetaj, wj, hj = coords[j]
+                rj = max(wj, hj) * 0.6
+                dx, dy = xj - xi, yj - yi
+                dist = math.hypot(dx, dy) or 1.0
+                min_d = ri + rj + 12  # gutter
+                if dist < min_d:
+                    push = (min_d - dist) / 2.0
+                    nx, ny = dx/dist, dy/dist
+                    coords[i][0] -= nx * push
+                    coords[i][1] -= ny * push
+                    coords[j][0] += nx * push
+                    coords[j][1] += ny * push
+
+    return [(x, y, theta) for x, y, theta, _, _ in coords]
+
+# ---- drawing helpers ----
+
+def rounded_rect(c: canvas.Canvas, x: float, y: float, w: float, h: float, r: float, fill: bool=False, stroke: bool=False):
+    c.roundRect(x, y, w, h, r, stroke=1 if stroke else 0, fill=1 if fill else 0)
+
+def draw_bezier_connector(c: canvas.Canvas, x0: float, y0: float, x1: float, y1: float, t_bias: float = 0.5):
+    # control points pulled towards the middle for a nice bow
+    mx = (x0 + x1) / 2.0
+    my = (y0 + y1) / 2.0
+    cx1 = (x0 * (1 - t_bias)) + (mx * t_bias)
+    cy1 = (y0 * (1 - t_bias)) + (my * t_bias)
+    cx2 = (x1 * (1 - t_bias)) + (mx * t_bias)
+    cy2 = (y1 * (1 - t_bias)) + (my * t_bias)
+
+    p = c.beginPath()
+    p.moveTo(x0, y0)
+    p.curveTo(cx1, cy1, cx2, cy2, x1, y1)
+    c.drawPath(p)
+
+def vignette_overlay(c: canvas.Canvas, page_w: float, page_h: float, strength: float = 0.08):
+    # simple vignette using expanding translucent rects
+    steps = 16
+    for i in range(steps):
+        alpha = strength * (i+1)/steps
+        c.setFillColorRGB(0,0,0, alpha=alpha)
+        inset = 6 * (steps - i)
+        c.rect(0 + inset, 0 + inset, page_w - 2*inset, page_h - 2*inset, fill=1, stroke=0)
+
+def node_size_for_text(c: canvas.Canvas, text: str, font_name: str, font_size: float, padding=(16,12)) -> tuple[float,float]:
+    c.setFont(font_name, font_size)
+    w = c.stringWidth(text, font_name, font_size)
+    h = font_size * 1.4
+    return (w + padding[0]*2, h + padding[1]*2)
+
+def text_wrap(c: canvas.Canvas, text: str, font_name: str, font_size: float, max_width: float) -> list[str]:
+    c.setFont(font_name, font_size)
+    words = text.split()
+    lines = []
+    cur = []
+    for w in words:
+        test = (" ".join(cur+[w])).strip()
+        if c.stringWidth(test, font_name, font_size) <= max_width or not cur:
+            cur.append(w)
+        else:
+            lines.append(" ".join(cur))
+            cur = [w]
+    if cur:
+        lines.append(" ".join(cur))
+    return lines
+
+def curved_arrow(c: canvas.Canvas, x0: float, y0: float, x1: float, y1: float, color_hex: str, width: float = 1.2, head: float = 8):
+    c.setStrokeColor(HexColor(color_hex))
+    c.setLineWidth(width)
+    draw_bezier_connector(c, x0, y0, x1, y1, t_bias=0.5)
+    # tiny arrow head
+    angle = math.atan2(y1-y0, x1-x0)
+    ax = x1 - head*math.cos(angle - 0.4)
+    ay = y1 - head*math.sin(angle - 0.4)
+    bx = x1 - head*math.cos(angle + 0.4)
+    by = y1 - head*math.sin(angle + 0.4)
+    p = c.beginPath()
+    p.moveTo(x1, y1)
+    p.lineTo(ax, ay)
+    p.lineTo(bx, by)
+    p.close()
+    c.setFillColor(HexColor(color_hex))
+    c.drawPath(p, fill=1, stroke=0)
+
+def progress_bar(c: canvas.Canvas, x: float, y: float, w: float, h: float, steps: int, current: int, accent_hex: str, muted_hex: str):
+    seg_w = w / steps
+    for i in range(steps):
+        color = accent_hex if i < current else muted_hex
+        c.setFillColor(HexColor(color))
+        c.rect(x + i*seg_w + 1, y, seg_w - 2, h, fill=1, stroke=0)
+
+# ---- layout helpers (NEW) ----
+
+def content_frame(page_w: float, page_h: float, theme: dict) -> tuple[float,float,float,float]:
+    L = theme["layout"]; M = theme["margins"]
+    x = max(L["safe_left"], M["left"])
+    y = max(L["safe_bottom"], M["bottom"])
+    w = page_w - x - max(L["safe_right"], M["right"])
+    h = page_h - max(L["safe_top"], M["top"]) - y
+    return (x, y, w, h)
+
+def clamp_title(c: canvas.Canvas, text: str, font_name: str, start_size: float, min_size: float, max_width: float) -> tuple[float, list[str]]:
+    """Return (size, lines<=2) that fit in max_width by shrinking or wrapping."""
+    size = start_size
+    # try keep one line by shrinking
+    if c.stringWidth(text, font_name, size) <= max_width:
+        return size, [text]
+    # try shrink to min
+    while size > min_size and c.stringWidth(text, font_name, size) > max_width:
+        size -= 1
+    if c.stringWidth(text, font_name, size) <= max_width:
+        return size, [text]
+    # wrap to 2 lines
+    lines = text_wrap(c, text, font_name, size, max_width)
+    if len(lines) > 2:
+        lines = [" ".join(lines[:-1]), lines[-1]]
+    return size, lines
+
+def measure_lines_height(font_size: float, line_count: int, leading_multiplier: float) -> float:
+    return font_size * leading_multiplier * line_count

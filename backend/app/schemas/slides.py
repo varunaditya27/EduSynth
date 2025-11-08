@@ -22,3 +22,5 @@ class LecturePlan(BaseModel):
     theme: Literal["minimalist", "chalkboard", "corporate"] = "minimalist"
     duration_minutes: int
     slides: conlist(SlideItem, min_length=2, max_length=30)
+    orientation: Optional[Literal["auto", "portrait", "landscape"]] = "auto"
+    device_preset: Optional[Literal["desktop", "tablet", "mobile"]] = None

@@ -13,7 +13,9 @@ from pptx.dml.color import RGBColor
 from PIL import Image, ImageDraw
 
 from app.schemas.slides import LecturePlan, SlideItem
-from .theme_tokens import hex_to_rgb, get_bullet_char
+from .diagram_draw import hex_to_rgb
+from .icons import get_point_icon
+
 
 
 # ---------- Color helpers (python-pptx solid fills don't support alpha) ----------
@@ -534,6 +536,7 @@ def build_pptx(plan: LecturePlan, theme: Dict[str, Any]) -> bytes:
         content_width = 10 - margins["left"] - margins["right"]
 
         layout_type = pick_layout(slide_item)
+        theme_key = (plan.theme or "minimalist").lower()
 
         if layout_type == "process":
             add_process_diagram(
@@ -581,7 +584,7 @@ def build_pptx(plan: LecturePlan, theme: Dict[str, Any]) -> bytes:
 
         else:
             # Text-only bullets
-            bullet_char = get_bullet_char(theme["bullet"])
+            get_point_icon(theme_key)
             tb = slide.shapes.add_textbox(
                 Inches(margins["left"]),
                 Inches(content_top),
