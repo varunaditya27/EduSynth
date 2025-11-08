@@ -49,6 +49,10 @@ class ChatbotService:
             Exception: If the API call fails
         """
         try:
+            # Fetch lecture context if lecture_id is provided
+            if request.lecture_id and not request.lecture_context:
+                request.lecture_context = await self._fetch_lecture_context(request.lecture_id)
+            
             # Build conversation messages
             messages = self._build_messages(request)
             
@@ -95,6 +99,10 @@ class ChatbotService:
             Chunks of the assistant's response
         """
         try:
+            # Fetch lecture context if lecture_id is provided
+            if request.lecture_id and not request.lecture_context:
+                request.lecture_context = await self._fetch_lecture_context(request.lecture_id)
+            
             # Build conversation messages
             messages = self._build_messages(request)
             
@@ -115,6 +123,69 @@ class ChatbotService:
         except Exception as e:
             raise Exception(f"Chatbot streaming error: {str(e)}")
     
+    async def _fetch_lecture_context(self, lecture_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch lecture details and slides for context.
+        
+        Args:
+            lecture_id: ID of the lecture
+            
+        Returns:
+            Dictionary with lecture context or None if not found
+        """
+        try:
+            from app.db import get_client
+            from pathlib import Path
+            import json
+            
+            # Get database client
+            db = await get_client()
+            
+            # Fetch lecture with slides
+            lecture = await db.lecture.find_unique(
+                where={"id": lecture_id},
+                include={"slides": True}
+            )
+            
+            if not lecture:
+                return None
+            
+            context = {
+                "topic": lecture.topic,
+                "audience": lecture.targetAudience,
+                "duration": lecture.desiredLength,
+                "theme": lecture.visualTheme,
+                "slides": []
+            }
+            
+            # Try to load generated slides JSON for richer context
+            if lecture.slides:
+                for slide in lecture.slides:
+                    context["slides"].append({
+                        "index": slide.slideIndex,
+                        "title": slide.title,
+                        "points": slide.keyPoints or [],
+                        "narration": slide.narration
+                    })
+            else:
+                # Try to load from JSON file if available
+                try:
+                    slides_dir = Path(__file__).resolve().parents[3] / "ai_generation" / "output" / "slides"
+                    # Find most recent JSON file (this is a fallback)
+                    json_files = sorted(slides_dir.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True)
+                    if json_files:
+                        with open(json_files[0], 'r', encoding='utf-8') as f:
+                            slides_data = json.load(f)
+                            context["slides"] = slides_data.get("slides", [])
+                except Exception:
+                    pass
+            
+            return context
+            
+        except Exception as e:
+            print(f"Error fetching lecture context: {e}")
+            return None
+    
     def _build_messages(self, request: ChatRequest) -> List[Dict[str, str]]:
         """
         Build the message list for the Groq API call.
@@ -128,7 +199,10 @@ class ChatbotService:
         messages = []
         
         # Add system message with context
-        system_message = self._create_system_message(request.topic_context)
+        system_message = self._create_system_message(
+            request.topic_context,
+            request.lecture_context
+        )
         messages.append({"role": "system", "content": system_message})
         
         # Add conversation history if provided
@@ -147,7 +221,11 @@ class ChatbotService:
         
         return messages
     
-    def _create_system_message(self, topic_context: Optional[str] = None) -> str:
+    def _create_system_message(
+        self,
+        topic_context: Optional[str] = None,
+        lecture_context: Optional[Dict[str, Any]] = None
+    ) -> str:
         """
         Create the system message that defines the AI assistant's behavior.
         
@@ -181,13 +259,45 @@ Guidelines:
 - Encourage users to explore and learn more
 - Be supportive of their educational goals"""
 
+        context_additions = []
+        
         if topic_context:
-            context_addition = f"""
+            context_additions.append(f"""
 
 Current Context:
 The user is working on a lecture about: "{topic_context}"
+""")
+        
+        if lecture_context:
+            context_additions.append(f"""
 
-Please provide responses that are relevant to this topic while also being helpful for their broader educational goals."""
+Lecture Details:
+- Topic: {lecture_context.get('topic', 'N/A')}
+- Target Audience: {lecture_context.get('audience', 'General audience')}
+- Duration: {lecture_context.get('duration', 'N/A')} minutes
+- Theme: {lecture_context.get('theme', 'N/A')}
+""")
+            
+            # Add slide content if available
+            if lecture_context.get('slides'):
+                slides_summary = "\n".join([
+                    f"  Slide {slide.get('index', i)}: {slide.get('title', 'Untitled')}"
+                    for i, slide in enumerate(lecture_context['slides'][:10], 1)  # First 10 slides
+                ])
+                context_additions.append(f"""
+
+Lecture Slide Structure:
+{slides_summary}
+{"... (more slides)" if len(lecture_context['slides']) > 10 else ""}
+
+You have access to the full slide content including titles, key points, and narration.
+Use this to provide specific, contextual answers about the lecture content.
+""")
+        
+        if context_additions:
+            context_addition = "".join(context_additions) + """
+
+Please provide responses that are relevant to this context while also being helpful for their broader educational goals."""
             return base_prompt + context_addition
         
         return base_prompt
