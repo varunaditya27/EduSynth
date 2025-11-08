@@ -2,13 +2,26 @@
 
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import GradientButton from '@/components/ui/gradient-button';
 import StarBorder from '@/components/StarBorder';
 import SplitText from '@/components/SplitText';
-import { Sparkles } from 'lucide-react';
+import AuthModal from '@/components/modals/auth-modal';
+import { Sparkles, Lock } from 'lucide-react';
+import { useAuth } from '@/contexts/auth-context';
 
 export default function HeroSection() {
   const router = useRouter();
+  const { isAuthenticated } = useAuth();
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+
+  const handleCreateLecture = () => {
+    if (isAuthenticated) {
+      router.push('/generator');
+    } else {
+      setAuthModalOpen(true);
+    }
+  };
 
   const title = 'Transform Knowledge Into Cinematic Lectures';
 
@@ -62,16 +75,17 @@ export default function HeroSection() {
         >
           <StarBorder
             as="div"
-            color="rgba(138, 43, 226, 0.8)"
+            color={isAuthenticated ? "rgba(138, 43, 226, 0.8)" : "rgba(156, 163, 175, 0.5)"}
             speed="4s"
             thickness={2}
           >
             <GradientButton
-              onClick={() => router.push('/generator')}
+              onClick={handleCreateLecture}
               size="lg"
-              className="group relative overflow-hidden"
+              className={`group relative overflow-hidden ${!isAuthenticated ? 'opacity-75 cursor-pointer' : ''}`}
             >
               <span className="relative z-10 flex items-center gap-2">
+                {!isAuthenticated && <Lock className="w-4 h-4" />}
                 Create Your First Lecture
                 <motion.span
                   animate={{ x: [0, 4, 0] }}
@@ -82,6 +96,17 @@ export default function HeroSection() {
               </span>
             </GradientButton>
           </StarBorder>
+          
+          {!isAuthenticated && (
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 2.0 }}
+              className="text-sm text-white/50 -mt-2"
+            >
+          
+            </motion.p>
+          )}
           
           <motion.button
             whileHover={{ scale: 1.05 }}
@@ -123,6 +148,13 @@ export default function HeroSection() {
           ))}
         </motion.div>
       </div>
+
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        defaultMode="signup"
+      />
     </section>
   );
 }
