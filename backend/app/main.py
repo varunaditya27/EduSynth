@@ -14,7 +14,7 @@ from typing import Optional
 
 # Local imports
 from .core.config import settings
-from .routers import slides, recommendations, chatbot, mindmap, auth, animations, lectures
+from .routers import slides, recommendations, chatbot, mindmap, auth, animations, lectures, pdf_generation
 from .gemini_generator import generate_slides
 from .tts_utils import synthesize_audio
 from .video_sync import assemble_video_from_slides
@@ -30,11 +30,12 @@ app = FastAPI(title="EduSynth Backend API")
 # Add routers (keep your friend's routes)
 app.include_router(auth.router, prefix="/v1/auth", tags=["authentication"])
 app.include_router(lectures.router, prefix="/api/lectures", tags=["lectures"])
-app.include_router(slides.router, prefix="/v1/slides", tags=["slides"])
 app.include_router(recommendations.router, prefix="/v1/recommendations", tags=["recommendations"])
 app.include_router(chatbot.router, prefix="/v1/chatbot", tags=["chatbot"])
 app.include_router(mindmap.router, prefix="/v1/mindmap", tags=["mindmap"])
 app.include_router(animations.router, prefix="/v1/animations", tags=["animations"])
+app.include_router(pdf_generation.router, tags=["pdf"])
+app.include_router(slides.router)
 
 app.add_middleware(
     CORSMiddleware,

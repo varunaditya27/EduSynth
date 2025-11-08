@@ -288,6 +288,33 @@ export interface GoogleAuthRequest {
   id_token: string;
 }
 
+// PDF Generation Interfaces (NEW)
+export interface PDFGenerationRequest {
+  topic: string;
+  audience: string;
+  length: string;
+  theme?: string;
+  orientation?: 'auto' | 'portrait' | 'landscape';
+  device_preset?: 'desktop' | 'tablet' | 'mobile';
+  cheatsheet_only?: boolean;
+  notes_only?: boolean;
+}
+
+export interface PDFGenerationResponse {
+  task_id: string;
+  status: string;
+  message: string;
+  pdf_url?: string;
+}
+
+export interface PDFStatusResponse {
+  task_id: string;
+  status: string;
+  pdf_url?: string;
+  topic?: string;
+  theme?: string;
+}
+
 class ApiClient {
   private baseUrl: string;
 
@@ -767,6 +794,35 @@ class ApiClient {
       const error = await response.json().catch(() => ({ detail: 'Failed to logout' }));
       throw new Error(error.detail || 'Failed to logout');
     }
+  }
+
+  // PDF Generation Methods (NEW)
+  async generatePDF(request: PDFGenerationRequest): Promise<PDFGenerationResponse> {
+    const response = await fetch(`${this.baseUrl}/v1/pdf/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to generate PDF' }));
+      throw new Error(error.detail || 'Failed to generate PDF');
+    }
+
+    return response.json();
+  }
+
+  async getPDFStatus(taskId: string): Promise<PDFStatusResponse> {
+    const response = await fetch(`${this.baseUrl}/v1/pdf/status/${taskId}`);
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to fetch PDF status' }));
+      throw new Error(error.detail || 'Failed to fetch PDF status');
+    }
+
+    return response.json();
   }
 }
 

@@ -7,6 +7,7 @@ import { POLLING_INTERVAL } from '@/lib/constants';
 import Iridescence from '@/components/Iridescence';
 import ProgressIndicator from '@/components/sections/progress-indicator';
 import ErrorModal from '@/components/modals/error-modal';
+import PDFStatusCard from '@/components/sections/pdf-status-card';
 
 const STAGES = [
   { progress: 20, label: 'Analyzing topic and generating outline' },
@@ -24,6 +25,43 @@ export default function ProcessingPage() {
   const [lecture, setLecture] = useState<Lecture | null>(null);
   const [currentStage, setCurrentStage] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  
+  // PDF Generation States
+  const [pdfGenerating, setPdfGenerating] = useState(false);
+  const [pdfGenerated, setPdfGenerated] = useState(false);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+
+  // Auto-generate PDF when video generation starts
+  useEffect(() => {
+    if (!lecture || pdfGenerated || pdfGenerating) return;
+    
+    const generatePDF = async () => {
+      try {
+        setPdfGenerating(true);
+        const response = await apiClient.generatePDF({
+          topic: lecture.topic,
+          audience: lecture.audience || 'students',
+          length: `${lecture.duration}`,
+          theme: lecture.theme || 'minimalist',
+          orientation: 'auto',
+          device_preset: 'desktop',
+        });
+        
+        if (response.pdf_url) {
+          setPdfUrl(response.pdf_url);
+          setPdfGenerated(true);
+        }
+      } catch (err) {
+        console.error('Failed to generate PDF:', err);
+        setPdfError('Failed to generate PDF notes');
+      } finally {
+        setPdfGenerating(false);
+      }
+    };
+    
+    generatePDF();
+  }, [lecture, pdfGenerated, pdfGenerating]);
 
   useEffect(() => {
     if (!lectureId) return;
@@ -90,6 +128,20 @@ export default function ProcessingPage() {
               </p>
             </div>
           )}
+
+          {/* PDF Generation Status */}
+          <PDFStatusCard
+            status={
+              pdfError ? 'error' :
+              pdfGenerated ? 'ready' :
+              pdfGenerating ? 'generating' :
+              'idle'
+            }
+            pdfUrl={pdfUrl}
+            error={pdfError}
+            theme={lecture?.theme}
+            devicePreset="desktop"
+          />
         </div>
       </div>
 
