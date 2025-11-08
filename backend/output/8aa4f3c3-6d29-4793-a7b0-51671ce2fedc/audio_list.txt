@@ -1,0 +1,6 @@
+file 'D:/D3/EduSynth/backend/output/8aa4f3c3-6d29-4793-a7b0-51671ce2fedc/audio/slide_0.mp3'
+file 'D:/D3/EduSynth/backend/output/8aa4f3c3-6d29-4793-a7b0-51671ce2fedc/audio/slide_1.mp3'
+file 'D:/D3/EduSynth/backend/output/8aa4f3c3-6d29-4793-a7b0-51671ce2fedc/audio/slide_2.mp3'
+file 'D:/D3/EduSynth/backend/output/8aa4f3c3-6d29-4793-a7b0-51671ce2fedc/audio/slide_3.mp3'
+file 'D:/D3/EduSynth/backend/output/8aa4f3c3-6d29-4793-a7b0-51671ce2fedc/audio/slide_4.mp3'
+file 'D:/D3/EduSynth/backend/output/8aa4f3c3-6d29-4793-a7b0-51671ce2fedc/audio/slide_5.mp3'
