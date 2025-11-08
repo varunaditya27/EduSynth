@@ -288,16 +288,13 @@ def assemble_background_task_wrapper(task_id: str, theme: str):
     """Wrapper to run async task in background."""
     import asyncio
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # If loop is already running, use run_coroutine_threadsafe
-            asyncio.create_task(assemble_background_task(task_id, theme))
-        else:
-            # Otherwise use asyncio.run
-            asyncio.run(assemble_background_task(task_id, theme))
-    except RuntimeError:
-        # Fallback to asyncio.run
-        asyncio.run(assemble_background_task(task_id, theme))
+        # Create new event loop for this background thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(assemble_background_task(task_id, theme))
+        loop.close()
+    except Exception as e:
+        print(f"[❌ Background task wrapper error]: {e}")
 
 
 async def assemble_background_task(task_id: str, theme: str):
