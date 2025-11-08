@@ -37,14 +37,18 @@ export default function AuthModal({ isOpen, onClose, defaultMode = 'login' }: Au
         await login(formData.email, formData.password);
       }
       
+      // Reset form
+      setFormData({ name: '', email: '', password: '' });
+      
       // Close modal on success
       onClose();
       
-      // Reset form
-      setFormData({ name: '', email: '', password: '' });
+      // Show success message (optional - you can add a toast notification here)
+      console.log('Authentication successful!');
     } catch (err: unknown) {
       console.error('Auth error:', err);
-      setError((err as Error).message || 'Authentication failed');
+      const errorMessage = err instanceof Error ? err.message : 'Authentication failed';
+      setError(errorMessage.includes('404') ? 'Backend server is not running' : errorMessage);
     } finally {
       setLoading(false);
     }
