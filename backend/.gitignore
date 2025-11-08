@@ -5,6 +5,7 @@ venv
 
 __pycache__/
 *.pyc
+*.json
 
 # Generated outputs
 scripts/artifacts/
