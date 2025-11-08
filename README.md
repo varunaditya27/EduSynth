@@ -254,5 +254,6 @@ MIT License - See [LICENSE](LICENSE)
 * ElevenLabs
 * Vercel
 * Supabase
+* Cloudflare
 
 ---
