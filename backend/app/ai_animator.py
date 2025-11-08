@@ -40,14 +40,18 @@ def _write_scene_py(out_dir: Path, slide: dict, theme: str):
     filename = f"scene_slide_{idx}.py"
     scene_path = out_dir / filename
 
-    # Transparent background for compositing
+    # ✅ CRITICAL: Set camera background to TRANSPARENT for compositing
     code = f'''
 from manim import *
 
+config.background_opacity = 0  # ✅ Make background fully transparent
+
 class {scene_name}(Scene):
     def construct(self):
-        # Transparent background compositing
-        title = Text("{title}", font_size=48)
+        # Configure transparent background
+        self.camera.background_color = "#00000000"  # Transparent black
+        
+        title = Text("{title}", font_size=48, color=WHITE)
         title.to_edge(UP)
         self.play(Write(title), run_time=1)
 
@@ -78,24 +82,20 @@ class {scene_name}(Scene):
 
 def _find_manim_output(scene_file: Path, scene_name: str) -> Path:
     """
-    ✅ ENHANCED: Locate the generated Manim MP4 file with multiple search strategies.
-    Supports new Manim folder structure and waits for file generation.
+    ✅ FIXED: Manim outputs .mov files with --transparent flag for true alpha channel
     """
-    # Wait a bit for file system to update
+    # Wait for file system
     time.sleep(0.5)
     
-    # Strategy 1: Search in media/ folder relative to PROJECT_ROOT
     media_root = PROJECT_ROOT / "media"
     
-    print(f"[MANIM] Searching for {scene_name}.mp4 in:")
-    print(f"  - {media_root}")
+    print(f"[MANIM] Searching for {scene_name}.mov (transparent MOV with alpha channel)...")
     
-    # Try common Manim output paths
+    # ✅ Search for .mov files (Manim's transparent output format with alpha)
     possible_paths = [
-        media_root / "videos" / scene_file.stem / "480p15" / f"{scene_name}.mp4",
-        media_root / "videos" / scene_file.stem / "720p30" / f"{scene_name}.mp4",
-        media_root / "videos" / scene_file.stem / "1080p60" / f"{scene_name}.mp4",
-        media_root / "videos" / "scene_slide_*" / "480p15" / f"{scene_name}.mp4",
+        media_root / "videos" / scene_file.stem / "480p15" / f"{scene_name}.mov",
+        media_root / "videos" / scene_file.stem / "720p30" / f"{scene_name}.mov",
+        media_root / "videos" / scene_file.stem / "1080p60" / f"{scene_name}.mov",
     ]
     
     for path in possible_paths:
@@ -158,8 +158,9 @@ def generate_manim_clip(slide: dict, task_id: str, theme: str = "Minimalist", ma
     quality_map = {"low": ["-ql"], "medium": ["-qm"], "high": ["-qh"]}
     qflags = quality_map.get(manim_quality, ["-ql"])
 
-    cmd = ["manim", *qflags, str(scene_file), scene_name, "--transparent"]
-    print(f"[MANIM] Rendering scene: {' '.join(cmd)}")
+    # ✅ CRITICAL: Add --transparent and --format=mov for true alpha channel
+    cmd = ["manim", *qflags, str(scene_file), scene_name, "--transparent", "--format=mov"]
+    print(f"[MANIM] Rendering scene with transparency: {' '.join(cmd)}")
     print(f"[MANIM] Working directory: {PROJECT_ROOT}")
 
     proc = subprocess.run(cmd, cwd=PROJECT_ROOT, capture_output=True, text=True)
@@ -173,12 +174,13 @@ def generate_manim_clip(slide: dict, task_id: str, theme: str = "Minimalist", ma
     if proc.returncode != 0:
         raise RuntimeError(f"Manim render failed with code {proc.returncode}: {proc.stderr}")
 
-    mp4 = _find_manim_output(scene_file, scene_name)
-    dest = task_dir / f"slide_{int(slide.get('index', 0))}_manim.mp4"
+    mov_file = _find_manim_output(scene_file, scene_name)
+    dest = task_dir / f"slide_{int(slide.get('index', 0))}_manim.mov"
     
-    # Copy instead of move to preserve original
+    # Copy instead of move to preserve original MOV with alpha channel
     import shutil
-    shutil.copy2(mp4, dest)
+    shutil.copy2(mov_file, dest)
     
-    print(f"[MANIM] ✅ Generated clip saved: {dest}")
+    print(f"[MANIM] ✅ Generated transparent clip saved: {dest}")
+    print(f"[MANIM] ℹ️ This MOV file has alpha channel for compositing over themed background")
     return dest.as_posix()

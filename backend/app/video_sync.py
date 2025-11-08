@@ -101,7 +101,33 @@ def _draw_fallback_subtitle(base_img: Image.Image, text: str, font_size: int = 2
 def _apply_ken_burns(img_clip, zoom=1.08):
     """Subtle pan/zoom effect to make static slides dynamic."""
     try:
-        return img_clip.fx(vfx.zoom_in, final_scale=zoom, duration=img_clip.duration)
+        # ✅ FIX: MoviePy doesn't have zoom_in in vfx module
+        # Use resize with interpolation instead
+        w, h = img_clip.size
+        final_w = int(w * zoom)
+        final_h = int(h * zoom)
+        
+        def zoom_effect(get_frame, t):
+            frame = get_frame(t)
+            progress = t / img_clip.duration
+            current_zoom = 1 + (zoom - 1) * progress
+            new_w = int(w * current_zoom)
+            new_h = int(h * current_zoom)
+            
+            # Resize frame
+            from PIL import Image
+            pil_img = Image.fromarray(frame)
+            resized = pil_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            
+            # Center crop to original size
+            left = (new_w - w) // 2
+            top = (new_h - h) // 2
+            cropped = resized.crop((left, top, left + w, top + h))
+            
+            return np.array(cropped)
+        
+        from moviepy.video.VideoClip import VideoClip
+        return img_clip.fl(lambda gf, t: zoom_effect(gf, t), apply_to=['mask'])
     except Exception as e:
         print(f"[Ken Burns] Failed: {e}")
         return img_clip
@@ -196,11 +222,18 @@ def assemble_video_from_slides(task_id: str, slides: list, theme: str = "Minimal
             try:
                 print(f"  [MANIM] Attempting to render slide {idx}...")
                 path = generate_manim_clip(s, task_id, theme)
-                manim_clip = VideoFileClip(path).subclip(0, duration)
-                clip = CompositeVideoClip([bg_clip, manim_clip])
-                print(f"  [MANIM] ✅ Success!")
+                
+                # ✅ Load MOV file with alpha channel
+                manim_clip = VideoFileClip(path, has_mask=True).subclip(0, min(duration, VideoFileClip(path).duration))
+                
+                # ✅ CRITICAL: Composite Manim animation OVER themed background
+                # The MOV file has transparency, so it will show the background through
+                clip = CompositeVideoClip([bg_clip, manim_clip.set_position("center")])
+                print(f"  [MANIM] ✅ Success! Composited over {theme} background")
             except Exception as e:
                 print(f"  [MANIM] ❌ Failed: {e}")
+                import traceback
+                traceback.print_exc()
 
         # --- 2️⃣ Static Fallback with Ken Burns ---
         if clip is None:
@@ -240,9 +273,13 @@ def assemble_video_from_slides(task_id: str, slides: list, theme: str = "Minimal
         if anim_path:
             try:
                 print(f"  [TENOR] Adding contextual animation...")
-                anim_clip = VideoFileClip(anim_path).subclip(0, min(duration, 10))
+                tenor_clip = VideoFileClip(anim_path)
                 
-                # ✅ FIX: Proper resizing without ANTIALIAS
+                # Limit duration to slide or 10 seconds max
+                tenor_duration = min(duration, 10, tenor_clip.duration)
+                anim_clip = tenor_clip.subclip(0, tenor_duration)
+                
+                # ✅ Resize using MoviePy's built-in method (no PIL ANTIALIAS issue)
                 anim_w = int(clip.w * 0.33)
                 anim_clip = anim_clip.resize(width=anim_w)
                 
@@ -253,6 +290,8 @@ def assemble_video_from_slides(task_id: str, slides: list, theme: str = "Minimal
                 print(f"  [TENOR] ✅ Overlay added!")
             except Exception as e:
                 print(f"  [TENOR] ❌ Overlay failed: {e}")
+                import traceback
+                traceback.print_exc()
 
         # --- 4️⃣ Subtitles ---
         if narration.strip():
