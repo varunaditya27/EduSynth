@@ -66,12 +66,6 @@ websockets==14.1
 reportlab==4.2.2         # for enhanced PDF generation
 networkx==3.4.2          # for flowcharts and mindmaps
 matplotlib==3.9.2        # visualization backend
-google-generativeai==0.8.3  # Gemini API for content generation
 graphviz==0.20.3         # mindmap and diagram export support
-openai==1.51.0           # optional fallback or dual AI support
-groq==0.11.0             # for advanced text-to-structure AI
-requests==2.32.3         # universal HTTP requests (for Unsplash etc.)
-tqdm==4.67.0             # progress indicators for local builders
 colorama==0.4.6          # terminal color output for builder scripts
 supabase==2.6.0
-loguru==0.7.2
