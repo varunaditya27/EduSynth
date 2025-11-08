@@ -391,13 +391,27 @@ class ApiClient {
   }
 
   async getLecture(id: string): Promise<Lecture> {
-    const response = await fetch(`${this.baseUrl}/api/lectures/${id}`);
+    // For now, redirect to status endpoint since we're using task_id
+    const response = await fetch(`${this.baseUrl}/status/${id}`);
 
     if (!response.ok) {
       throw new Error('Failed to fetch lecture');
     }
 
-    return response.json();
+    const data = await response.json();
+    
+    // Transform status response to Lecture format
+    return {
+      id: data.task_id,
+      topic: data.topic || 'Lecture',
+      audience: 'Students', // Not available in status, use default
+      duration: 10, // Not available in status, use default
+      theme: 'Minimalist', // Not available in status, use default
+      status: data.status === 'completed' ? 'completed' : data.status === 'processing' ? 'processing' : 'pending',
+      videoUrl: data.videoUrl,
+      progress: data.progress,
+      createdAt: new Date().toISOString(),
+    };
   }
 
   async getLectures(): Promise<Lecture[]> {

@@ -22,7 +22,7 @@ from app.services.mindmap import mindmap_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/mindmap", tags=["mindmap"])
+router = APIRouter(tags=["mindmap"])
 
 
 @router.post(
