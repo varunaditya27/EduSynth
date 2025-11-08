@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import GradientButton from './gradient-button';
 import AuthModal from '@/components/modals/auth-modal';
-import { Menu, X, Sparkles } from 'lucide-react';
+import { Menu, X, Sparkles, User, LogOut } from 'lucide-react';
+import { useAuth } from '@/contexts/auth-context';
 
 interface NavbarProps {
   variant?: 'landing' | 'app';
@@ -15,9 +16,16 @@ export default function Navbar({ variant = 'landing' }: NavbarProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
   const pathname = usePathname();
+  const { user, isAuthenticated, logout } = useAuth();
 
   const isActive = (path: string) => pathname === path;
+
+  const handleLogout = async () => {
+    await logout();
+    setShowProfileMenu(false);
+  };
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-xl bg-black/30 border-b border-white/10">
@@ -59,7 +67,7 @@ export default function Navbar({ variant = 'landing' }: NavbarProps) {
               </>
             )}
 
-            {variant === 'landing' && (
+            {variant === 'landing' && !isAuthenticated && (
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => {
@@ -79,6 +87,46 @@ export default function Navbar({ variant = 'landing' }: NavbarProps) {
                 >
                   Sign Up
                 </GradientButton>
+              </div>
+            )}
+
+            {variant === 'landing' && isAuthenticated && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowProfileMenu(!showProfileMenu)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 transition-all"
+                >
+                  <User className="w-4 h-4" />
+                  <span className="text-sm font-medium">{user?.name || user?.email}</span>
+                </button>
+
+                {showProfileMenu && (
+                  <div className="absolute right-0 mt-2 w-48 rounded-lg bg-black/90 backdrop-blur-xl border border-white/10 shadow-xl overflow-hidden">
+                    <Link
+                      href="/dashboard"
+                      className="flex items-center gap-2 px-4 py-3 hover:bg-white/5 transition-colors"
+                      onClick={() => setShowProfileMenu(false)}
+                    >
+                      <User className="w-4 h-4" />
+                      <span className="text-sm">Dashboard</span>
+                    </Link>
+                    <Link
+                      href="/generator"
+                      className="flex items-center gap-2 px-4 py-3 hover:bg-white/5 transition-colors"
+                      onClick={() => setShowProfileMenu(false)}
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      <span className="text-sm">Create Lecture</span>
+                    </Link>
+                    <button
+                      onClick={handleLogout}
+                      className="flex items-center gap-2 w-full px-4 py-3 hover:bg-red-500/10 text-red-400 transition-colors"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      <span className="text-sm">Logout</span>
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -131,7 +179,7 @@ export default function Navbar({ variant = 'landing' }: NavbarProps) {
               </>
             )}
 
-            {variant === 'landing' && (
+            {variant === 'landing' && !isAuthenticated && (
               <div className="space-y-3 pt-4 border-t border-white/10">
                 <button
                   onClick={() => {
@@ -153,6 +201,38 @@ export default function Navbar({ variant = 'landing' }: NavbarProps) {
                 >
                   Sign Up
                 </GradientButton>
+              </div>
+            )}
+
+            {variant === 'landing' && isAuthenticated && (
+              <div className="space-y-3 pt-4 border-t border-white/10">
+                <div className="px-3 py-2 text-sm text-white/60">
+                  <div className="font-medium text-white">{user?.name || user?.email}</div>
+                  <div className="text-xs">{user?.email}</div>
+                </div>
+                <Link
+                  href="/dashboard"
+                  className="block text-base font-medium text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Dashboard
+                </Link>
+                <Link
+                  href="/generator"
+                  className="block text-base font-medium text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Create Lecture
+                </Link>
+                <button
+                  onClick={() => {
+                    handleLogout();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="block w-full text-left text-base font-medium text-red-400 hover:text-red-300 transition-colors"
+                >
+                  Logout
+                </button>
               </div>
             )}
           </div>
