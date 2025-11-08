@@ -1,166 +1,159 @@
-"""
-Theme token system for slide deck styling.
-"""
-from typing import Dict, Any, Tuple
+from __future__ import annotations
 
+def _base_sizes():
+    return {
+        "display": 46,
+        "title": 38,
+        "h2": 28,
+        "h3": 22,
+        "body": 14,
+        "caption": 11,
+        "code": 12,
+        "footer": 10,
+    }
 
-THEMES: Dict[str, Dict[str, Any]] = {
-    "minimalist": {
-        "fonts": {
-            "title": "Inter Semibold",
-            "title_fallback": "Segoe UI Semibold",
-            "body": "Inter",
-            "body_fallback": "Segoe UI",
-        },
-        "sizes": {
-            "title": 44,
-            "subtitle": 24,
-            "body": 24,
-            "footer": 12,
-        },
+def _base_radius():
+    return {"sm": 6, "md": 12, "lg": 18}
+
+def _base_layout():
+    return {
+        "safe_top": 64,
+        "safe_bottom": 48,   # footer band height
+        "safe_left": 56,
+        "safe_right": 56,
+        "title_min_size": 18,
+        "bullet_leading": 1.35,  # multiplier on body font size
+        "para_gap_pt": 10,
+        "bullet_indent_pt": 20,
+    }
+
+def _base_margins():
+    # standard page margins (used alongside safe_* bands)
+    return {"top": 56, "right": 56, "bottom": 56, "left": 56}
+
+def _base_fonts_minimal():
+    return {
+        "title": "Helvetica-Bold",
+        "body": "Helvetica",
+        "mono": "Courier",
+        "fallback_title": "Helvetica-Bold",
+        "fallback_body": "Helvetica",
+    }
+
+def _base_fonts_chalk():
+    # Use Helvetica variants as safe fallback (no external font files)
+    return {
+        "title": "Helvetica-Bold",
+        "body": "Helvetica",
+        "mono": "Courier",
+        "fallback_title": "Helvetica-Bold",
+        "fallback_body": "Helvetica",
+    }
+
+def _base_fonts_corporate():
+    return {
+        "title": "Helvetica-Bold",
+        "body": "Helvetica",
+        "mono": "Courier",
+        "fallback_title": "Helvetica-Bold",
+        "fallback_body": "Helvetica",
+    }
+
+# NEW: shared spacing + header band config
+def _base_spacing():
+    return {"xs": 4, "sm": 8, "md": 12, "lg": 16, "xl": 24, "xxl": 32}
+
+def _base_band():
+    # height_em is multiplied by h2 size; gap pushes content clear of band
+    return {"height_em": 2.0, "gap_below_em": 0.9}
+
+def get_theme(key: str) -> dict:
+    key = (key or "minimalist").lower()
+
+    if key == "chalkboard":
+        return {
+            "fonts": _base_fonts_chalk(),
+            "sizes": _base_sizes(),
+            "radius": _base_radius(),
+            "layout": _base_layout(),
+            "margins": _base_margins(),
+            "spacing": _base_spacing(),      # NEW
+            "band": _base_band(),            # NEW
+            "colors": {
+                "bg": "#1F3D2B",
+                "paper": "#233F2E",
+                "text": "#F1F5F9",
+                "muted": "#A7B3A9",
+                "accent": "#FFD700",
+                "accent2": "#FF6B9D",
+                "success": "#10B981",
+                "warn": "#F59E0B",
+                "danger": "#EF4444",
+            },
+            "background_gradient": ("#1F3D2B", "#274E37"),
+            "vignette": {"strength": 0.10},
+            "cheatsheet": {
+                "mindmap_radius_pct": 0.35,
+                "sub_radius_offset": [70, 120],
+                "max_branches": 10,
+            },
+        }
+
+    if key == "corporate":
+        return {
+            "fonts": _base_fonts_corporate(),
+            "sizes": _base_sizes(),
+            "radius": _base_radius(),
+            "layout": _base_layout(),
+            "margins": _base_margins(),
+            "spacing": _base_spacing(),      # NEW
+            "band": _base_band(),            # NEW
+            "colors": {
+                "bg": "#F4F7FB",
+                "paper": "#FFFFFF",
+                "text": "#0F172A",
+                "muted": "#64748B",
+                "accent": "#2563EB",  # blue
+                "accent2": "#DC2626", # red
+                "success": "#10B981",
+                "warn": "#F59E0B",
+                "danger": "#EF4444",
+            },
+            "background_gradient": ("#F8FAFC", "#EAF2FF"),
+            "vignette": {"strength": 0.08},
+            "cheatsheet": {
+                "mindmap_radius_pct": 0.35,
+                "sub_radius_offset": [70, 120],
+                "max_branches": 10,
+            },
+        }
+
+    # minimalist (default)
+    return {
+        "fonts": _base_fonts_minimal(),
+        "sizes": _base_sizes(),
+        "radius": _base_radius(),
+        "layout": _base_layout(),
+        "margins": _base_margins(),
+        "spacing": _base_spacing(),          # NEW
+        "band": _base_band(),                # NEW
         "colors": {
             "bg": "#FFFFFF",
-            "text": "#0F172A",
-            "muted": "#64748B",
-            "accent": "#2563EB",
-            "accent2": "#10B981",
+            "paper": "#FFFFFF",
+            "text": "#0B1220",
+            "muted": "#6B7280",
+            "accent": "#2563EB",  # blue
+            "accent2": "#10B981", # green
+            "success": "#10B981",
+            "warn": "#F59E0B",
+            "danger": "#EF4444",
         },
-        "margins_in": {
-            "top": 1.0,
-            "right": 1.0,
-            "bottom": 1.0,
-            "left": 1.0,
+        "background_gradient": ("#FFFFFF", "#EEF2F7"),
+        "vignette": {"strength": 0.06},
+        "cheatsheet": {
+            "mindmap_radius_pct": 0.35,
+            "sub_radius_offset": [70, 120],
+            "max_branches": 10,
         },
-        "bullet": "dot",
-        "depth": {
-            "shape_shadow_opacity": 0.25,
-            "shape_shadow_offset_pt": 3,
-        },
-        "background_gradient": ("#FFFFFF", "#E2E8F0"),
-        "header_bar": False,
-        "footer": False,
-    },
-    "chalkboard": {
-        "fonts": {
-            "title": "Cabin Sketch",
-            "title_fallback": "Arial Black",
-            "body": "Comic Neue",
-            "body_fallback": "Arial",
-        },
-        "sizes": {
-            "title": 44,
-            "subtitle": 24,
-            "body": 24,
-            "footer": 12,
-        },
-        "colors": {
-            "bg": "#1F3D2B",
-            "text": "#F1F5F9",
-            "muted": "#CBD5E1",
-            "accent": "#FBBF24",
-            "accent2": "#34D399",
-        },
-        "margins_in": {
-            "top": 1.0,
-            "right": 1.0,
-            "bottom": 1.0,
-            "left": 1.0,
-        },
-        "bullet": "dash",
-        "depth": {
-            "shape_shadow_opacity": 0.25,
-            "shape_shadow_offset_pt": 3,
-        },
-        "background_gradient": ("#1F3D2B", "#274E37"),
-        "header_bar": False,
-        "footer": False,
-    },
-    "corporate": {
-        "fonts": {
-            "title": "Source Sans Pro Semibold",
-            "title_fallback": "Segoe UI Semibold",
-            "body": "Source Sans Pro",
-            "body_fallback": "Segoe UI",
-        },
-        "sizes": {
-            "title": 40,
-            "subtitle": 24,
-            "body": 22,
-            "footer": 12,
-        },
-        "colors": {
-            "bg": "#F8FAFC",
-            "text": "#0B132B",
-            "muted": "#334155",
-            "accent": "#3B82F6",
-            "accent2": "#0EA5E9",
-        },
-        "margins_in": {
-            "top": 1.0,
-            "right": 1.0,
-            "bottom": 1.0,
-            "left": 1.0,
-        },
-        "bullet": "square",
-        "depth": {
-            "shape_shadow_opacity": 0.25,
-            "shape_shadow_offset_pt": 3,
-        },
-        "background_gradient": ("#FFFFFF", "#E6F0FF"),
-        "header_bar": True,
-        "header_bar_height_px": 90,
-        "footer": True,
-    },
-}
-
-
-def get_theme(theme_key: str) -> Dict[str, Any]:
-    """
-    Get theme tokens by key.
-    
-    Args:
-        theme_key: Theme identifier (minimalist, chalkboard, corporate)
-        
-    Returns:
-        Theme token dictionary
-        
-    Raises:
-        ValueError: If theme key is invalid
-    """
-    theme_key = theme_key.lower()
-    if theme_key not in THEMES:
-        # Default to minimalist
-        return THEMES["minimalist"]
-    return THEMES[theme_key]
-
-
-def hex_to_rgb(hex_color: str) -> Tuple[int, int, int]:
-    """
-    Convert hex color to RGB tuple.
-    
-    Args:
-        hex_color: Hex color string (e.g., "#FFFFFF")
-        
-    Returns:
-        RGB tuple (0-255 range)
-    """
-    hex_color = hex_color.lstrip("#")
-    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
-
-
-def get_bullet_char(bullet_type: str) -> str:
-    """
-    Get bullet character for type.
-    
-    Args:
-        bullet_type: Bullet type (dot, dash, square)
-        
-    Returns:
-        Bullet character
-    """
-    bullet_chars = {
-        "dot": "•",
-        "dash": "–",
-        "square": "■",
     }
-    return bullet_chars.get(bullet_type, "•")
+    

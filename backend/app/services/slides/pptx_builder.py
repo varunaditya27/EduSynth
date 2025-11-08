@@ -1,620 +1,488 @@
 """
-PPTX builder with visual themes and diagram support.
-(Aesthetic-max version with gradients, accents, and simple diagrams.)
+PPTX builder with visual themes and adaptive layout matching PDF quality.
+Simplified to heading + bullet points format only.
 """
-
 from io import BytesIO
-from typing import Dict, Any, Tuple, List
+from typing import Dict, Any, Tuple, List, Optional
+import math
 
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+from pptx.enum.shapes import MSO_SHAPE
 from pptx.dml.color import RGBColor
 from PIL import Image, ImageDraw
 
 from app.schemas.slides import LecturePlan, SlideItem
-from .theme_tokens import hex_to_rgb, get_bullet_char
+from .icons import get_point_icon
+from .theme_tokens import get_theme
 
 
-# ---------- Color helpers (python-pptx solid fills don't support alpha) ----------
+# --- Color Conversion Helpers ----------------------------------------------
 
-def _blend_with_bg(
-    rgb: tuple[int, int, int],
-    bg: tuple[int, int, int] = (255, 255, 255),
-    alpha: float = 0.5,
-) -> tuple[int, int, int]:
-    """
-    Approximate opacity by blending 'rgb' over 'bg'.
-    alpha=0.0 -> fully bg; alpha=1.0 -> original rgb.
-    """
-    a = max(0.0, min(1.0, float(alpha)))
-    return tuple(int(round(a * rgb[i] + (1.0 - a) * bg[i])) for i in range(3))
+def _hex_to_rgb_int(hex_color: str) -> Tuple[int, int, int]:
+    """Convert #RRGGBB -> (r,g,b) ints 0..255."""
+    hc = (hex_color or "#000000").lstrip("#")
+    if len(hc) != 6:
+        raise ValueError(f"Invalid hex color: {hex_color}")
+    return tuple(int(hc[i : i + 2], 16) for i in (0, 2, 4))
 
 
-# ---------- Gradient background renderer (Pillow) ----------
+def _blend_with_white(rgb: Tuple[int, int, int], alpha: float) -> Tuple[int, int, int]:
+    """Blend RGB with white using alpha (0=white, 1=color)."""
+    return tuple(int(255 * (1 - alpha) + c * alpha) for c in rgb)
 
-def _render_gradient_bg(
-    width_px: int,
-    height_px: int,
-    stops: Tuple[str, str],
-    mode: str = "linear",  # "linear" | "radial"
-) -> bytes:
-    """
-    Render a simple gradient background as PNG bytes.
-    """
-    img = Image.new("RGB", (width_px, height_px))
-    draw = ImageDraw.Draw(img)
 
-    color1 = hex_to_rgb(stops[0])
-    color2 = hex_to_rgb(stops[1])
+def _srgb_to_linear(c: float) -> float:
+    c = c / 255.0
+    if c <= 0.04045:
+        return c / 12.92
+    return ((c + 0.055) / 1.055) ** 2.4
 
-    if mode == "radial":
-        # Radial from center
-        cx, cy = width_px // 2, height_px // 2
-        max_r = ((width_px ** 2 + height_px ** 2) ** 0.5) / 2
-        for y in range(height_px):
-            for x in range(width_px):
-                dx, dy = x - cx, y - cy
-                dist = (dx * dx + dy * dy) ** 0.5
-                t = min(dist / max_r, 1.0)
-                r = int(color1[0] * (1 - t) + color2[0] * t)
-                g = int(color1[1] * (1 - t) + color2[1] * t)
-                b = int(color1[2] * (1 - t) + color2[2] * t)
-                draw.point((x, y), fill=(r, g, b))
+
+def _relative_luminance(rgb: Tuple[int, int, int]) -> float:
+    r, g, b = rgb
+    return 0.2126 * _srgb_to_linear(r) + 0.7152 * _srgb_to_linear(g) + 0.0722 * _srgb_to_linear(b)
+
+
+def _contrast_ratio(rgb1: Tuple[int, int, int], rgb2: Tuple[int, int, int]) -> float:
+    l1 = _relative_luminance(rgb1)
+    l2 = _relative_luminance(rgb2)
+    hi = max(l1, l2)
+    lo = min(l1, l2)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+# --- Math Helpers ----------------------------------------------------------
+
+def _clamp(x: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, x))
+
+
+def _px_to_inches(px: float, dpi: float = 96.0) -> float:
+    return float(px) / float(dpi)
+
+
+# --- Slide Size / Presets --------------------------------------------------
+
+PRESETS = {
+    "desktop": (13.33, 7.5),   # 16:9 wide
+    "tablet": (10.0, 7.5),     # 4:3 classic
+    "mobile": (7.5, 13.33),    # 9:16 portrait
+}
+
+
+def _configure_slide_size(prs: Presentation, plan: LecturePlan) -> None:
+    """Configure slide dimensions based on device_preset or orientation."""
+    preset = (plan.device_preset or "").lower() if plan.device_preset else None
+    orientation = (plan.orientation or "auto").lower()
+
+    if preset and preset in PRESETS:
+        w_in, h_in = PRESETS[preset]
     else:
-        # Linear top->bottom
-        for y in range(height_px):
-            t = y / max(1, height_px - 1)
-            r = int(color1[0] * (1 - t) + color2[0] * t)
-            g = int(color1[1] * (1 - t) + color2[1] * t)
-            b = int(color1[2] * (1 - t) + color2[2] * t)
-            draw.line([(0, y), (width_px, y)], fill=(r, g, b))
+        # Orientation-based fallback
+        if orientation == "portrait":
+            w_in, h_in = 7.5, 10.0  # 4:3 rotated
+        elif orientation == "landscape":
+            w_in, h_in = 10.0, 7.5  # 4:3 landscape
+        else:  # auto
+            w_in, h_in = PRESETS["desktop"]
 
-    buf = BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
-
-
-# ---------- (Optional) shadow helper (creation-order "shadow") ----------
-
-def _add_shadow_shape(shapes, shape, theme: Dict[str, Any]) -> None:
-    """
-    Fake a shadow by duplicating the shape behind with a slight offset.
-    """
-    offset_pt = theme["depth"]["shape_shadow_offset_pt"]
-    # opacity not directly supported; we just use black behind
-    shadow = shapes.add_shape(
-        shape.shape_type,
-        shape.left + Pt(offset_pt),
-        shape.top + Pt(offset_pt),
-        shape.width,
-        shape.height,
-    )
-    shadow.fill.solid()
-    shadow.fill.fore_color.rgb = RGBColor(0, 0, 0)
-    shadow.line.color.rgb = RGBColor(0, 0, 0)
-    # No z-order API; rely on creation order (shadow created after goes on top),
-    # so if you need it truly behind, create shadow first, then the main shape.
+    prs.slide_width = Inches(w_in)
+    prs.slide_height = Inches(h_in)
 
 
-# ---------- Layout selector ----------
+# --- Adaptive Sizing -------------------------------------------------------
 
-def pick_layout(slide: SlideItem) -> str:
-    """
-    Return the layout type for a slide.
-    """
-    if slide.diagram:
-        return slide.diagram
-    return "text"
+def _compute_scale_and_sizes(prs: Presentation, theme: Dict[str, Any]) -> Dict[str, float]:
+    """Compute adaptive font sizes based on slide width."""
+    base_w_in = 10.24
+    margins = theme.get("margins", {})
+    left_px = margins.get("left", 56)
+    right_px = margins.get("right", 56)
+    
+    frame_w_in = prs.slide_width.inches - (_px_to_inches(left_px) + _px_to_inches(right_px))
+    base_w_pts = base_w_in * 72.0
+    frame_w_pts = frame_w_in * 72.0
+    
+    scale = _clamp(frame_w_pts / base_w_pts, 0.85, 1.15)
 
-
-# ---------- Diagram renderers ----------
-
-def add_process_diagram(
-    shapes,
-    left: float,
-    top: float,
-    width: float,
-    height: float,
-    points: List[str],
-    theme: Dict[str, Any],
-) -> None:
-    """
-    Left-to-right rounded boxes + connectors for "process".
-    """
-    from pptx.enum.shapes import MSO_SHAPE, MSO_CONNECTOR
-
-    steps = max(1, min(len(points), 5))
-    box_w = width / (steps * 1.5)
-    spacing = (width - steps * box_w) / (steps - 1) if steps > 1 else 0.0
-
-    accent_rgb = hex_to_rgb(theme["colors"]["accent"])
-    text_rgb = (255, 255, 255)
-
-    for i, label in enumerate(points[:steps]):
-        box_left = left + i * (box_w + spacing)
-        box_top = top + (height - Inches(1.0)) / 2
-
-        rect = shapes.add_shape(
-            MSO_SHAPE.ROUNDED_RECTANGLE,
-            Inches(box_left),
-            Inches(box_top),
-            Inches(box_w),
-            Inches(1.0),
-        )
-        rect.fill.solid()
-        rect.fill.fore_color.rgb = RGBColor(*accent_rgb)
-        rect.line.color.rgb = RGBColor(*accent_rgb)
-
-        tf = rect.text_frame
-        tf.text = label
-        tf.word_wrap = True
-        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
-        p = tf.paragraphs[0]
-        p.alignment = PP_ALIGN.CENTER
-        p.font.size = Pt(14)
-        p.font.color.rgb = RGBColor(*text_rgb)
-
-        # connector arrow to next
-        if i < steps - 1:
-            x1 = box_left + box_w
-            y = box_top + 0.5
-            conn = shapes.add_connector(
-                MSO_CONNECTOR.STRAIGHT,
-                Inches(x1),
-                Inches(y),
-                Inches(x1 + spacing),
-                Inches(y),
-            )
-            conn.line.color.rgb = RGBColor(*accent_rgb)
-            conn.line.width = Pt(2)
+    sizes = theme.get("sizes", {})
+    scaled = {
+        "display": max(18, int(round(sizes.get("display", 46) * scale))),
+        "title": max(18, int(round(sizes.get("title", 38) * scale))),
+        "h2": max(18, int(round(sizes.get("h2", 28) * scale))),
+        "body": max(12, int(round(sizes.get("body", 14) * scale))),
+        "footer": max(10, int(round(sizes.get("footer", 10) * scale))),
+    }
+    return scaled
 
 
-def add_tree_diagram(
-    shapes,
-    left: float,
-    top: float,
-    width: float,
-    height: float,
-    points: List[str],
-    theme: Dict[str, Any],
-) -> None:
-    """
-    Parent box with up to 3 children under it for "tree".
-    """
-    from pptx.enum.shapes import MSO_SHAPE, MSO_CONNECTOR
-
-    accent = hex_to_rgb(theme["colors"]["accent"])
-    accent2 = hex_to_rgb(theme["colors"]["accent2"])
-    text_white = (255, 255, 255)
-
-    # Parent
-    parent_w = width * 0.4
-    parent_l = left + (width - parent_w) / 2
-    parent = shapes.add_shape(
-        MSO_SHAPE.RECTANGLE,
-        Inches(parent_l),
-        Inches(top),
-        Inches(parent_w),
-        Inches(0.8),
-    )
-    parent.fill.solid()
-    parent.fill.fore_color.rgb = RGBColor(*accent)
-    parent.line.color.rgb = RGBColor(*accent)
-
-    tf = parent.text_frame
-    tf.text = points[0] if points else "Parent"
-    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
-    p = tf.paragraphs[0]
-    p.alignment = PP_ALIGN.CENTER
-    p.font.size = Pt(16)
-    p.font.color.rgb = RGBColor(*text_white)
-
-    # Children (max 3)
-    children = points[1:4]
-    if children:
-        child_w = width / (len(children) + 1)
-        child_top = top + 2.0
-        for i, label in enumerate(children):
-            child_left = left + i * child_w + child_w * 0.25
-            child = shapes.add_shape(
-                MSO_SHAPE.RECTANGLE,
-                Inches(child_left),
-                Inches(child_top),
-                Inches(child_w * 0.5),
-                Inches(0.6),
-            )
-            child.fill.solid()
-            child.fill.fore_color.rgb = RGBColor(*accent2)
-            child.line.color.rgb = RGBColor(*accent2)
-            tf = child.text_frame
-            tf.text = label
-            tf.vertical_anchor = MSO_ANCHOR.MIDDLE
-            p = tf.paragraphs[0]
-            p.alignment = PP_ALIGN.CENTER
-            p.font.size = Pt(12)
-            p.font.color.rgb = RGBColor(*text_white)
-
-            # connector from parent bottom center to child top center
-            conn = shapes.add_connector(
-                MSO_CONNECTOR.STRAIGHT,
-                parent.left + parent.width / 2,
-                parent.top + parent.height,
-                child.left + child.width / 2,
-                child.top,
-            )
-            conn.line.color.rgb = RGBColor(*accent2)
-            conn.line.width = Pt(2)
+def _get_safe_frame(prs: Presentation, theme: Dict[str, Any]) -> Tuple[float, float, float, float]:
+    """Return (left, top, width, height) in inches for content frame."""
+    layout = theme.get("layout", {})
+    margins = theme.get("margins", {})
+    
+    left = max(_px_to_inches(layout.get("safe_left", 56)), _px_to_inches(margins.get("left", 56)))
+    right = max(_px_to_inches(layout.get("safe_right", 56)), _px_to_inches(margins.get("right", 56)))
+    top = max(_px_to_inches(layout.get("safe_top", 64)), _px_to_inches(margins.get("top", 56)))
+    bottom = max(_px_to_inches(layout.get("safe_bottom", 48)), _px_to_inches(margins.get("bottom", 56)))
+    
+    width = prs.slide_width.inches - left - right
+    height = prs.slide_height.inches - top - bottom
+    
+    return (left, top, width, height)
 
 
-def add_timeline_diagram(
-    shapes,
-    left: float,
-    top: float,
-    width: float,
-    height: float,
-    points: List[str],
-    theme: Dict[str, Any],
-) -> None:
-    """
-    Horizontal timeline with circular markers.
-    """
-    from pptx.enum.shapes import MSO_SHAPE, MSO_CONNECTOR
+# --- Background Rendering --------------------------------------------------
 
-    accent = hex_to_rgb(theme["colors"]["accent"])
-    text_rgb = hex_to_rgb(theme["colors"]["text"])
+def _background_image_bytes(theme: Dict[str, Any], width_px: int, height_px: int) -> bytes:
+    """Render vertical gradient PNG matching theme background."""
+    bg_grad = theme.get("background_gradient", (theme["colors"]["bg"], theme["colors"]["bg"]))
+    color_a = _hex_to_rgb_int(bg_grad[0])
+    color_b = _hex_to_rgb_int(bg_grad[1])
 
-    y = top + height / 2
-    line = shapes.add_connector(
-        MSO_CONNECTOR.STRAIGHT,
-        Inches(left),
-        Inches(y),
-        Inches(left + width),
-        Inches(y),
-    )
-    line.line.color.rgb = RGBColor(*accent)
-    line.line.width = Pt(3)
+    img = Image.new("RGB", (max(1, width_px), max(1, height_px)), color_a)
+    draw = ImageDraw.Draw(img)
+    
+    for y in range(height_px):
+        t = y / max(1, height_px - 1)
+        r = int(color_a[0] * (1 - t) + color_b[0] * t)
+        g = int(color_a[1] * (1 - t) + color_b[1] * t)
+        b = int(color_a[2] * (1 - t) + color_b[2] * t)
+        draw.line([(0, y), (width_px, y)], fill=(r, g, b))
 
-    n = max(1, min(len(points), 5))
-    gap = width / (n + 1)
-    for i, label in enumerate(points[:n]):
-        cx = left + (i + 1) * gap
-        # marker circle
-        marker = shapes.add_shape(
-            MSO_SHAPE.OVAL,
-            Inches(cx - 0.15),
-            Inches(y - 0.15),
-            Inches(0.3),
-            Inches(0.3),
-        )
-        marker.fill.solid()
-        marker.fill.fore_color.rgb = RGBColor(*accent)
-        marker.line.color.rgb = RGBColor(*accent)
+    # Vignette overlay
+    vig = theme.get("vignette", {})
+    strength = vig.get("strength", 0.0)
+    if strength > 0.01:
+        overlay = Image.new("RGBA", (width_px, height_px), (0, 0, 0, 0))
+        od = ImageDraw.Draw(overlay)
+        steps = 16
+        for i in range(steps):
+            alpha = int((i / steps) * 255 * strength * 0.6)
+            inset = int((steps - i) * 6)
+            od.rectangle([inset, inset, width_px - inset, height_px - inset], 
+                        fill=(0, 0, 0, alpha))
+        img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
 
-        # label
-        tb = shapes.add_textbox(
-            Inches(cx - 0.6),
-            Inches(y + 0.35),
-            Inches(1.2),
-            Inches(0.6),
-        )
-        tf = tb.text_frame
-        tf.text = label
-        tf.word_wrap = True
-        p = tf.paragraphs[0]
-        p.alignment = PP_ALIGN.CENTER
-        p.font.size = Pt(10)
-        p.font.color.rgb = RGBColor(*text_rgb)
+    bio = BytesIO()
+    img.save(bio, format="PNG", optimize=True)
+    return bio.getvalue()
 
 
-def add_compare_layout(
-    shapes,
-    left: float,
-    top: float,
-    width: float,
-    height: float,
-    points: List[str],
-    theme: Dict[str, Any],
-) -> None:
-    """
-    Two side-by-side panels for "compare".
-    """
-    from pptx.enum.shapes import MSO_SHAPE
-
-    accent = hex_to_rgb(theme["colors"]["accent"])
-    accent2 = hex_to_rgb(theme["colors"]["accent2"])
-    text_rgb = hex_to_rgb(theme["colors"]["text"])
-
-    panel_w = (width - 0.2) / 2
-
-    # Split points
-    mid = len(points) // 2
-    left_points = points[:mid] if mid > 0 else points[:2]
-    right_points = points[mid:] if mid > 0 else points[2:]
-
-    # Left panel
-    left_panel = shapes.add_shape(
-        MSO_SHAPE.RECTANGLE,
-        Inches(left),
-        Inches(top),
-        Inches(panel_w),
-        Inches(height),
-    )
-    left_panel.fill.solid()
-    # Fake 50% opacity over white
-    soft_accent = _blend_with_bg(accent, (255, 255, 255), alpha=0.5)
-    left_panel.fill.fore_color.rgb = RGBColor(*soft_accent)
-    left_panel.line.color.rgb = RGBColor(*accent)
-
-    # Right panel
-    right_panel = shapes.add_shape(
-        MSO_SHAPE.RECTANGLE,
-        Inches(left + panel_w + 0.2),
-        Inches(top),
-        Inches(panel_w),
-        Inches(height),
-    )
-    right_panel.fill.solid()
-    # Fake 40% opacity over white
-    soft_accent2 = _blend_with_bg(accent2, (255, 255, 255), alpha=0.4)
-    right_panel.fill.fore_color.rgb = RGBColor(*soft_accent2)
-    right_panel.line.color.rgb = RGBColor(*accent2)
-
-    # Text blocks
-    for i, point in enumerate(left_points[:3]):
-        tb = shapes.add_textbox(
-            Inches(left + 0.2),
-            Inches(top + 0.25 + i * 0.65),
-            Inches(panel_w - 0.4),
-            Inches(0.55),
-        )
-        tf = tb.text_frame
-        tf.text = f"• {point}"
-        tf.word_wrap = True
-        p = tf.paragraphs[0]
-        p.font.size = Pt(14)
-        p.font.color.rgb = RGBColor(*text_rgb)
-
-    for i, point in enumerate(right_points[:3]):
-        tb = shapes.add_textbox(
-            Inches(left + panel_w + 0.4),
-            Inches(top + 0.25 + i * 0.65),
-            Inches(panel_w - 0.4),
-            Inches(0.55),
-        )
-        tf = tb.text_frame
-        tf.text = f"• {point}"
-        tf.word_wrap = True
-        p = tf.paragraphs[0]
-        p.font.size = Pt(14)
-        p.font.color.rgb = RGBColor(*text_rgb)
-
-
-# ---------- Main builder ----------
-
-def build_pptx(plan: LecturePlan, theme: Dict[str, Any]) -> bytes:
-    """
-    Build a themed PPTX from LecturePlan.
-    """
-    prs = Presentation()
-    prs.slide_width = Inches(10)
-    prs.slide_height = Inches(7.5)
-
-    text_rgb = hex_to_rgb(theme["colors"]["text"])
-    accent_rgb = hex_to_rgb(theme["colors"]["accent"])
-    muted_rgb = hex_to_rgb(theme["colors"]["muted"])
-    margins = theme["margins_in"]
-
-    # Gradient background image for slides
-    gradient_mode = "radial" if theme.get("header_bar") else "linear"
-    bg_img = _render_gradient_bg(
-        int(prs.slide_width.inches * 96),
-        int(prs.slide_height.inches * 96),
-        theme["background_gradient"],
-        gradient_mode,
-    )
-
-    # ===== TITLE SLIDE =====
-    title_slide = prs.slides.add_slide(prs.slide_layouts[6])  # blank
-    title_slide.shapes.add_picture(
-        BytesIO(bg_img), 0, 0, prs.slide_width, prs.slide_height
-    )
-
-    # Top accent bar
-    bar = title_slide.shapes.add_shape(
-        1,  # rectangle
-        0,
-        0,
-        prs.slide_width,
-        Inches(0.1),
-    )
-    bar.fill.solid()
-    bar.fill.fore_color.rgb = RGBColor(*accent_rgb)
-    bar.line.fill.background()
-
-    # Title
-    title_box = title_slide.shapes.add_textbox(
-        Inches(1), Inches(2.5), Inches(8), Inches(2)
-    )
-    tf = title_box.text_frame
-    tf.text = plan.topic
-    tf.word_wrap = True
-    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
-    p = tf.paragraphs[0]
-    p.alignment = PP_ALIGN.CENTER
-    p.font.size = Pt(theme["sizes"]["title"] + 10)
-    p.font.bold = True
-    p.font.color.rgb = RGBColor(*text_rgb)
+def _add_background(slide, prs: Presentation, theme: Dict[str, Any]):
+    """Add gradient background image to slide."""
     try:
-        p.font.name = theme["fonts"]["title"]
+        px_w = int(round(prs.slide_width.inches * 96))
+        px_h = int(round(prs.slide_height.inches * 96))
+        bg_bytes = _background_image_bytes(theme, px_w, px_h)
+        bio = BytesIO(bg_bytes)
+        slide.shapes.add_picture(bio, Inches(0), Inches(0), 
+                                width=prs.slide_width, height=prs.slide_height)
     except Exception:
-        p.font.name = theme["fonts"].get("title_fallback", "Segoe UI")
-
-    # Subtitle
-    subtitle = f"{plan.language.upper()} • {plan.duration_minutes} minutes"
-    sub_box = title_slide.shapes.add_textbox(
-        Inches(1), Inches(5.0), Inches(8), Inches(0.6)
-    )
-    sub_tf = sub_box.text_frame
-    sub_tf.text = subtitle
-    sp = sub_tf.paragraphs[0]
-    sp.alignment = PP_ALIGN.CENTER
-    sp.font.size = Pt(theme["sizes"]["subtitle"])
-    sp.font.color.rgb = RGBColor(*muted_rgb)
-
-    # Footer
-    foot = title_slide.shapes.add_textbox(
-        Inches(1), Inches(6.8), Inches(8), Inches(0.4)
-    )
-    foot_tf = foot.text_frame
-    foot_tf.text = "EduSynth"
-    fp = foot_tf.paragraphs[0]
-    fp.alignment = PP_ALIGN.CENTER
-    fp.font.size = Pt(theme["sizes"]["footer"])
-    fp.font.color.rgb = RGBColor(*muted_rgb)
-
-    # Bottom accent bar
-    bar2 = title_slide.shapes.add_shape(
-        1, 0, Inches(7.4), prs.slide_width, Inches(0.1)
-    )
-    bar2.fill.solid()
-    bar2.fill.fore_color.rgb = RGBColor(*accent_rgb)
-    bar2.line.fill.background()
-
-    # ===== CONTENT SLIDES =====
-    for slide_item in plan.slides:
-        slide = prs.slides.add_slide(prs.slide_layouts[6])
-        slide.shapes.add_picture(
-            BytesIO(bg_img), 0, 0, prs.slide_width, prs.slide_height
-        )
-
-        # Corporate header bar if configured
-        if theme.get("header_bar"):
-            header_h = Inches(theme.get("header_bar_height_px", 90) / 96)
-            header = slide.shapes.add_shape(1, 0, 0, prs.slide_width, header_h)
-            header.fill.solid()
-            header.fill.fore_color.rgb = RGBColor(*accent_rgb)
-            header.line.fill.background()
-
-        # Title
-        title_top = margins["top"] if not theme.get("header_bar") else 1.2
-        tbox = slide.shapes.add_textbox(
-            Inches(margins["left"]),
-            Inches(title_top),
-            Inches(10 - margins["left"] - margins["right"]),
-            Inches(0.9),
-        )
-        ttf = tbox.text_frame
-        ttf.text = slide_item.title
-        ttf.word_wrap = True
-        tp = ttf.paragraphs[0]
-        tp.font.size = Pt(theme["sizes"]["title"])
-        tp.font.bold = True
-        tp.font.color.rgb = RGBColor(*text_rgb)
+        # Fallback to solid color
         try:
-            tp.font.name = theme["fonts"]["title"]
+            bg_rgb = _hex_to_rgb_int(theme["colors"]["bg"])
+            slide.background.fill.solid()
+            slide.background.fill.fore_color.rgb = RGBColor(*bg_rgb)
         except Exception:
-            tp.font.name = theme["fonts"].get("title_fallback", "Segoe UI")
+            pass
 
-        # Accent rule under title
-        rule = slide.shapes.add_shape(
-            1,
-            Inches(margins["left"]),
-            Inches(title_top + 0.95),
-            Inches(2),
-            Inches(0.05),
+
+# --- Text Helpers ----------------------------------------------------------
+
+def _add_textbox(slide, left_in, top_in, width_in, height_in, text, font_name, 
+                 font_size, color_rgb, bold=False, alignment=PP_ALIGN.LEFT, 
+                 vertical_anchor=MSO_ANCHOR.TOP):
+    """Add a text box with specified formatting."""
+    tb = slide.shapes.add_textbox(Inches(left_in), Inches(top_in), 
+                                  Inches(width_in), Inches(height_in))
+    tf = tb.text_frame
+    tf.text = text
+    tf.word_wrap = True
+    tf.vertical_anchor = vertical_anchor
+    
+    p = tf.paragraphs[0]
+    p.alignment = alignment
+    p.font.size = Pt(font_size)
+    p.font.bold = bold
+    p.font.color.rgb = RGBColor(*color_rgb)
+    
+    try:
+        p.font.name = font_name
+    except Exception:
+        pass
+    
+    return tb
+
+
+def _text_fits_width(text: str, font_size: float, max_width_in: float) -> bool:
+    """Rough check if text fits in width (approximation)."""
+    # More conservative estimate: average character width in inches
+    # Using 0.5 for typical proportional fonts
+    approx_width = len(text) * 0.5 * font_size / 72.0
+    return approx_width <= max_width_in
+
+
+# --- Slide Renderers -------------------------------------------------------
+
+def _title_splash(prs: Presentation, plan: LecturePlan, theme: Dict[str, Any], sizes: Dict[str, float]):
+    """Render title splash slide (page 1)."""
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _add_background(slide, prs, theme)
+    
+    frame_left, frame_top, frame_w, frame_h = _get_safe_frame(prs, theme)
+    
+    # Title text preparation
+    title_font = theme["fonts"].get("title", "Helvetica-Bold")
+    text_rgb = _hex_to_rgb_int(theme["colors"]["text"])
+    title_text = plan.topic
+    
+    # Adaptive font sizing - much more aggressive
+    display_size = sizes["display"]
+    while display_size > 18 and not _text_fits_width(title_text, display_size, frame_w * 0.75):
+        display_size -= 2
+    
+    # Calculate ornament size based on actual text dimensions
+    # Rough estimate: width needs padding, height based on font size
+    text_width_estimate = len(title_text) * 0.6 * display_size / 72.0
+    ornament_w = min(text_width_estimate * 1.3, frame_w * 0.85)
+    ornament_h = (display_size / 72.0) * 2.2  # Height proportional to font size
+    
+    ornament_left = frame_left + (frame_w - ornament_w) / 2
+    ornament_top = frame_top + (frame_h - ornament_h) / 2
+    
+    # Theme-specific ornament
+    theme_key = theme.get("name", "minimalist")
+    accent_rgb = _hex_to_rgb_int(theme["colors"]["accent"])
+    
+    if theme_key == "minimalist":
+        ornament_fill = _blend_with_white(accent_rgb, 0.12)
+    elif theme_key == "chalkboard":
+        ornament_fill = _blend_with_white(accent_rgb, 0.25)
+    else:  # corporate
+        ornament_fill = _blend_with_white(accent_rgb, 0.15)
+    
+    ornament = slide.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE,
+        Inches(ornament_left), Inches(ornament_top),
+        Inches(ornament_w), Inches(ornament_h)
+    )
+    ornament.fill.solid()
+    ornament.fill.fore_color.rgb = RGBColor(*ornament_fill)
+    ornament.line.fill.background()
+    
+    # Title centered - use same dimensions as ornament
+    # Ensure sufficient contrast between ornament and title text (important for chalkboard)
+    title_color_rgb = text_rgb
+    try:
+        if _contrast_ratio(tuple(ornament_fill), tuple(text_rgb)) < 4.5:
+            # Use dark background color (theme bg) for text when ornament is too light
+            title_color_rgb = _hex_to_rgb_int(theme["colors"]["bg"])
+    except Exception:
+        title_color_rgb = text_rgb
+
+    _add_textbox(
+        slide,
+        ornament_left,
+        ornament_top,
+        ornament_w,
+        ornament_h,
+        title_text,
+        title_font,
+        display_size,
+        title_color_rgb,
+        bold=True,
+        alignment=PP_ALIGN.CENTER,
+        vertical_anchor=MSO_ANCHOR.MIDDLE,
+    )
+
+
+def _content_slide(prs: Presentation, slide_item: SlideItem, theme: Dict[str, Any], 
+                   sizes: Dict[str, float]) -> int:
+    """Create slide(s) with heading + bullet points. Returns number of slides created."""
+    points = slide_item.points or []
+    if not points:
+        return 0
+    
+    frame_left, frame_top, frame_w, frame_h = _get_safe_frame(prs, theme)
+    
+    # Compute max bullets per slide
+    layout = theme.get("layout", {})
+    body_size = sizes["body"]
+    leading = body_size * layout.get("bullet_leading", 1.35)
+    para_gap = layout.get("para_gap_pt", 10)
+    
+    line_h_in = (leading + para_gap) / 72.0
+    available_h = frame_h - 1.5  # More space reserved for title
+    max_bullets = max(4, int(available_h / line_h_in))
+    
+    created = 0
+    start = 0
+    
+    while start < len(points):
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        _add_background(slide, prs, theme)
+        
+        # Title band - with more top padding
+        title_font = theme["fonts"].get("title", "Helvetica-Bold")
+        text_rgb = _hex_to_rgb_int(theme["colors"]["text"])
+        band_h = 1.0  # Increased height
+        title_top = frame_top + 0.3  # Added top padding
+        
+        title_text = slide_item.title if created == 0 else f"{slide_item.title} (cont.)"
+        
+        _add_textbox(
+            slide,
+            frame_left,
+            title_top,
+            frame_w,
+            band_h,
+            title_text,
+            title_font,
+            sizes["title"],
+            text_rgb,
+            bold=True,
+            alignment=PP_ALIGN.LEFT,
+            vertical_anchor=MSO_ANCHOR.TOP
         )
-        rule.fill.solid()
-        rule.fill.fore_color.rgb = RGBColor(*accent_rgb)
-        rule.line.fill.background()
+        
+        # Bullets area - starts lower to account for title padding
+        bullets_top = title_top + band_h + 0.3  # More gap after title
+        bullets_h = frame_h - (bullets_top - frame_top)
+        
+        tb = slide.shapes.add_textbox(
+            Inches(frame_left), Inches(bullets_top),
+            Inches(frame_w), Inches(bullets_h)
+        )
+        tf = tb.text_frame
+        tf.clear()
+        tf.word_wrap = True
+        tf.margin_left = Inches(0.2)
+        tf.margin_right = Inches(0.2)
+        tf.margin_top = Inches(0)
+        
+        # Add bullets
+        end = min(len(points), start + max_bullets)
+        body_font = theme["fonts"].get("body", "Helvetica")
+        theme_key = theme.get("name", "minimalist")
+        
+        for idx in range(start, end):
+            ptext = points[idx]
+            icon = get_point_icon(theme_key, idx - start)
+            
+            if idx == start:
+                p = tf.paragraphs[0]
+            else:
+                p = tf.add_paragraph()
+            
+            p.text = f"{icon} {ptext}"
+            p.level = 0
+            p.font.size = Pt(body_size)
+            p.font.color.rgb = RGBColor(*text_rgb)
+            p.font.name = body_font
+            p.space_after = Pt(para_gap)
+            p.line_spacing = leading / body_size
+        
+        start = end
+        created += 1
+    
+    return created
 
-        # Content area
-        content_top = title_top + 1.2
-        content_height = 7.5 - content_top - margins["bottom"]
-        content_width = 10 - margins["left"] - margins["right"]
 
-        layout_type = pick_layout(slide_item)
+# --- Footer ----------------------------------------------------------------
 
-        if layout_type == "process":
-            add_process_diagram(
-                slide.shapes,
-                margins["left"],
-                content_top,
-                content_width,
-                content_height - 0.2,
-                slide_item.points,
-                theme,
-            )
+def _add_footer(slide, prs: Presentation, plan: LecturePlan, page_num: int, 
+               total_pages: int, theme: Dict[str, Any], sizes: Dict[str, float]):
+    """Add footer with page number and topic."""
+    frame_left, frame_top, frame_w, frame_h = _get_safe_frame(prs, theme)
+    layout = theme.get("layout", {})
+    
+    footer_y = prs.slide_height.inches - _px_to_inches(layout.get("safe_bottom", 48)) - 0.3
+    
+    # Divider line
+    muted_rgb = _hex_to_rgb_int(theme["colors"]["muted"])
+    divider = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE,
+        Inches(frame_left), Inches(footer_y),
+        Inches(frame_w), Inches(0.01)
+    )
+    divider.fill.solid()
+    divider.fill.fore_color.rgb = RGBColor(*muted_rgb)
+    divider.line.fill.background()
+    
+    # Footer text
+    footer_font = theme["fonts"].get("body", "Helvetica")
+    folio = f"{plan.topic} • {page_num}/{total_pages}"
+    
+    # Theme-specific alignment
+    theme_key = theme.get("name", "minimalist")
+    if theme_key == "minimalist":
+        align = PP_ALIGN.CENTER
+    elif theme_key == "chalkboard":
+        align = PP_ALIGN.LEFT
+    else:  # corporate
+        align = PP_ALIGN.RIGHT
+    
+    _add_textbox(
+        slide,
+        frame_left,
+        footer_y + 0.05,
+        frame_w,
+        0.3,
+        folio,
+        footer_font,
+        sizes["footer"],
+        muted_rgb,
+        alignment=align
+    )
 
-        elif layout_type == "tree":
-            add_tree_diagram(
-                slide.shapes,
-                margins["left"],
-                content_top,
-                content_width,
-                content_height - 0.2,
-                slide_item.points,
-                theme,
-            )
 
-        elif layout_type == "timeline":
-            add_timeline_diagram(
-                slide.shapes,
-                margins["left"],
-                content_top + 0.5,
-                content_width,
-                content_height - 0.8,
-                slide_item.points,
-                theme,
-            )
+# --- Main Builder ----------------------------------------------------------
 
-        elif layout_type == "compare":
-            add_compare_layout(
-                slide.shapes,
-                margins["left"],
-                content_top,
-                content_width,
-                content_height - 0.2,
-                slide_item.points,
-                theme,
-            )
-
-        else:
-            # Text-only bullets
-            bullet_char = get_bullet_char(theme["bullet"])
-            tb = slide.shapes.add_textbox(
-                Inches(margins["left"]),
-                Inches(content_top),
-                Inches(content_width),
-                Inches(content_height),
-            )
-            tf = tb.text_frame
-            tf.word_wrap = True
-            for i, point in enumerate(slide_item.points):
-                para = tf.add_paragraph() if i > 0 else tf.paragraphs[0]
-                para.text = f"{bullet_char} {point}"
-                para.level = 0
-                para.font.size = Pt(theme["sizes"]["body"])
-                para.font.color.rgb = RGBColor(*text_rgb)
-                try:
-                    para.font.name = theme["fonts"]["body"]
-                except Exception:
-                    para.font.name = theme["fonts"].get("body_fallback", "Segoe UI")
-                para.space_before = Pt(12)
-
-        # Corporate footer: page number
-        if theme.get("footer"):
-            fb = slide.shapes.add_textbox(
-                Inches(8.5), Inches(7.0), Inches(1.2), Inches(0.3)
-            )
-            ft = fb.text_frame
-            ft.text = str(slide_item.index + 1)
-            fp = ft.paragraphs[0]
-            fp.alignment = PP_ALIGN.RIGHT
-            fp.font.size = Pt(theme["sizes"]["footer"])
-            fp.font.color.rgb = RGBColor(*muted_rgb)
-
+def build_pptx(plan: LecturePlan, theme: Optional[Dict[str, Any]] = None) -> bytes:
+    """Build themed PPTX from LecturePlan - heading + bullets only."""
+    theme = theme or get_theme(plan.theme)
+    
+    # Add theme name for icon helpers
+    theme["name"] = (plan.theme or "minimalist").lower()
+    
+    prs = Presentation()
+    _configure_slide_size(prs, plan)
+    
+    # Compute adaptive sizes
+    sizes = _compute_scale_and_sizes(prs, theme)
+    
+    # Count total pages
+    total_pages = 1  # Title splash
+    for slide_item in plan.slides:
+        points_count = len(slide_item.points or [])
+        body_size = sizes["body"]
+        leading = body_size * theme.get("layout", {}).get("bullet_leading", 1.35)
+        para_gap = theme.get("layout", {}).get("para_gap_pt", 10)
+        line_h_in = (leading + para_gap) / 72.0
+        frame_left, frame_top, frame_w, frame_h = _get_safe_frame(prs, theme)
+        available_h = frame_h - 1.2
+        max_bullets = max(4, int(available_h / line_h_in))
+        total_pages += math.ceil(points_count / max_bullets)
+    
+    page_num = 0
+    
+    # Title splash
+    _title_splash(prs, plan, theme, sizes)
+    page_num += 1
+    _add_footer(prs.slides[page_num - 1], prs, plan, page_num, total_pages, theme, sizes)
+    
+    # Content slides (heading + bullets only)
+    for slide_item in plan.slides:
+        slides_created = _content_slide(prs, slide_item, theme, sizes)
+        for i in range(slides_created):
+            page_num += 1
+            _add_footer(prs.slides[page_num - 1], prs, plan, page_num, total_pages, theme, sizes)
+    
     # Save to bytes
     out = BytesIO()
     prs.save(out)
+    out.seek(0)
     return out.getvalue()

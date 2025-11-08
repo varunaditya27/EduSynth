@@ -7,7 +7,6 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
-  shadowDatabaseUrl = env("DIRECT_URL")
 }
 
 // ===========================
@@ -351,4 +350,20 @@ enum VideoStatus {
   FAILED            // Error occurred
   
   @@map("video_status")
+}
+model GeneratedAsset {
+  id              String   @id @default(uuid())
+  userId          String?  // null if anonymous
+  jobId           String
+  topic           String
+  theme           String
+  durationMinutes Int
+  format          String
+  r2Url           String
+  thumbnailUrl    String?
+  status          String   @default("completed")
+  createdAt       DateTime @default(now())
+
+  @@map("generated_assets")
+  @@index([userId, createdAt(sort: Desc)], name: "idx_generated_assets_user_created")
 }
