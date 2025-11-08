@@ -58,8 +58,8 @@ model Lecture {
   errorMessage      String?       @db.Text
   
   // Ownership
-  userId            String
-  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String?       // Made optional for system-generated lectures
+  user              User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   // Relations
   slides            Slide[]

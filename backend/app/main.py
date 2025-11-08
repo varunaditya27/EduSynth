@@ -14,10 +14,14 @@ from typing import Optional
 
 # Local imports
 from .core.config import settings
-from .routers import slides, recommendations, chatbot, mindmap, auth, animations
+from .routers import slides, recommendations, chatbot, mindmap, auth, animations, lectures
 from .gemini_generator import generate_slides
 from .tts_utils import synthesize_audio
 from .video_sync import assemble_video_from_slides
+from .db import get_client
+from prisma import Prisma
+from prisma.enums import VideoStatus, VisualTheme
+from datetime import datetime
 # merge_utils no longer needed - video already has audio from MoviePy
 
 # --- Setup ---
@@ -25,6 +29,7 @@ app = FastAPI(title="EduSynth Backend API")
 
 # Add routers (keep your friend's routes)
 app.include_router(auth.router, prefix="/v1/auth", tags=["authentication"])
+app.include_router(lectures.router, prefix="/api/lectures", tags=["lectures"])
 app.include_router(slides.router, prefix="/v1/slides", tags=["slides"])
 app.include_router(recommendations.router, prefix="/v1/recommendations", tags=["recommendations"])
 app.include_router(chatbot.router, prefix="/v1/chatbot", tags=["chatbot"])
@@ -95,16 +100,125 @@ def _upload_file_to_r2(local_path: Path, s3_key: str) -> str:
         config=BotoConfig(signature_version="s3v4"),
     )
 
-    s3.upload_file(str(local_path), bucket, s3_key)
+    # Upload with public-read ACL so videos are publicly accessible
+    s3.upload_file(
+        str(local_path), 
+        bucket, 
+        s3_key,
+        ExtraArgs={'ACL': 'public-read', 'ContentType': 'video/mp4'}
+    )
 
-    direct = getattr(settings, "DIRECT_URL", None)
-    if direct:
-        return f"{direct.rstrip('/')}/{s3_key}"
-    return f"{endpoint.rstrip('/')}/{bucket}/{s3_key}"
+    # Construct the public R2 URL
+    # Format: https://<bucket-name>.<account-id>.r2.cloudflarestorage.com/<s3-key>
+    # Or if you have a custom domain: https://your-domain.com/<s3-key>
+    # For now, construct from endpoint
+    r2_public_url = getattr(settings, "CLOUDFLARE_R2_PUBLIC_URL", None)
+    if r2_public_url:
+        return f"{r2_public_url.rstrip('/')}/{s3_key}"
+    
+    # Fallback: construct from endpoint
+    # Remove the API endpoint and construct public URL
+    # Cloudflare R2 endpoint format: https://<account-id>.r2.cloudflarestorage.com
+    # Public URL format: https://pub-<hash>.<region>.r2.dev/<key>
+    # Or: https://<bucket>.r2.cloudflarestorage.com/<key>
+    return f"{endpoint.rstrip('/')}/{s3_key}"
+
+
+@app.get("/status/{task_id}")
+def get_status(task_id: str):
+    """
+    Get the status of video generation for a given task_id.
+    Returns status, progress, and URLs when complete.
+    """
+    try:
+        # Check if slides JSON exists
+        slides_file = OUTDIR / "slides" / f"{task_id}.json"
+        if not slides_file.exists():
+            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+        
+        # Load slides data to get topic
+        slides_payload = json.loads(slides_file.read_text(encoding="utf-8"))
+        slides = slides_payload.get("slides", [])
+        topic = slides[0].get("title", "Lecture") if slides else "Lecture"
+        
+        # Check if video exists in final directory
+        final_dir = OUTDIR / task_id / "final"
+        final_video = final_dir / f"{task_id}_merged.mp4"
+        
+        if final_video.exists():
+            # Video is complete - check if uploaded to R2
+            try:
+                # Try to construct R2 URL
+                endpoint = settings.CLOUDFLARE_S3_ENDPOINT
+                bucket = settings.CLOUDFLARE_S3_BUCKET_NAME
+                s3_key = f"videos/{task_id}_merged.mp4"
+                
+                video_url = f"{endpoint.rstrip('/')}/{bucket}/{s3_key}"
+                
+                return {
+                    "task_id": task_id,
+                    "status": "completed",
+                    "progress": 100,
+                    "topic": topic,
+                    "videoUrl": video_url,
+                    "message": "Video generation complete"
+                }
+            except Exception as e:
+                # If R2 URL construction fails, return local file
+                return {
+                    "task_id": task_id,
+                    "status": "completed",
+                    "progress": 100,
+                    "topic": topic,
+                    "videoUrl": f"/output/{task_id}/final/{task_id}_merged.mp4",
+                    "message": "Video generation complete (local)"
+                }
+        
+        # Check if video is being assembled (exists in video directory but not final)
+        video_dir = OUTDIR / task_id / "video"
+        video_file = video_dir / f"{task_id}.mp4"
+        
+        if video_file.exists():
+            return {
+                "task_id": task_id,
+                "status": "processing",
+                "progress": 90,
+                "topic": topic,
+                "message": "Finalizing video..."
+            }
+        
+        # Check if audio files exist (TTS stage)
+        audio_dir = OUTDIR / task_id / "audio"
+        if audio_dir.exists() and list(audio_dir.glob("*.mp3")):
+            audio_count = len(list(audio_dir.glob("*.mp3")))
+            expected_count = len(slides)
+            progress = 40 + (audio_count / expected_count * 40) if expected_count > 0 else 40
+            
+            return {
+                "task_id": task_id,
+                "status": "processing",
+                "progress": int(progress),
+                "topic": topic,
+                "message": f"Generating voiceover ({audio_count}/{expected_count})..."
+            }
+        
+        # Task exists but processing hasn't started much
+        return {
+            "task_id": task_id,
+            "status": "processing",
+            "progress": 20,
+            "topic": topic,
+            "message": "Preparing slides..."
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get status: {str(e)}")
 
 
 @app.post("/generate")
-def generate(req: GenerateRequest, background_tasks: BackgroundTasks):
+async def generate(req: GenerateRequest, background_tasks: BackgroundTasks):
     """
     Generates slides via Gemini, saves JSON, and triggers background assembly.
     """
@@ -112,14 +226,37 @@ def generate(req: GenerateRequest, background_tasks: BackgroundTasks):
     minutes = _parse_minutes(req.length)
 
     try:
-        _, slide_list = generate_slides(req.topic, req.audience, minutes, req.theme)
+        theme = req.theme or "Minimalist"
+        _, slide_list = generate_slides(req.topic, req.audience, minutes, theme)
         slides_payload = {"slides": slide_list}
         saved_path = _save_slides_json(task_id, slides_payload)
+        
+        # Parse theme to enum
+        theme_upper = theme.upper()
+        visual_theme = VisualTheme.MINIMALIST  # default
+        if hasattr(VisualTheme, theme_upper):
+            visual_theme = getattr(VisualTheme, theme_upper)
+        
+        # Create lecture record in database
+        db = await get_client()
+        await db.lecture.create(
+            data={
+                "id": task_id,
+                "topic": req.topic,
+                "targetAudience": req.audience,
+                "desiredLength": minutes,
+                "visualTheme": visual_theme,
+                "videoStatus": VideoStatus.GENERATING_CONTENT,
+                "processingStartedAt": datetime.utcnow(),
+                "userId": None,  # Optional for system-generated lectures
+                "hasInteractive": False
+            }
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Gemini generation failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
 
     # Trigger background video assembly automatically
-    background_tasks.add_task(assemble_background_task, task_id, req.theme)
+    background_tasks.add_task(assemble_background_task_wrapper, task_id, theme)
 
     return {
         "task_id": task_id,
@@ -128,7 +265,23 @@ def generate(req: GenerateRequest, background_tasks: BackgroundTasks):
     }
 
 
-def assemble_background_task(task_id: str, theme: str):
+def assemble_background_task_wrapper(task_id: str, theme: str):
+    """Wrapper to run async task in background."""
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # If loop is already running, use run_coroutine_threadsafe
+            asyncio.create_task(assemble_background_task(task_id, theme))
+        else:
+            # Otherwise use asyncio.run
+            asyncio.run(assemble_background_task(task_id, theme))
+    except RuntimeError:
+        # Fallback to asyncio.run
+        asyncio.run(assemble_background_task(task_id, theme))
+
+
+async def assemble_background_task(task_id: str, theme: str):
     """
     Internal background worker — runs assemble() logic automatically.
     """
@@ -176,15 +329,40 @@ def assemble_background_task(task_id: str, theme: str):
             json.dumps({"final_cloud_url": cloud_url}, indent=2),
             encoding="utf-8"
         )
+        
+        # Update lecture record in database
+        db = await get_client()
+        await db.lecture.update(
+            where={"id": task_id},
+            data={
+                "videoUrl": cloud_url,
+                "videoStatus": VideoStatus.COMPLETED,
+                "processingCompletedAt": datetime.utcnow()
+            }
+        )
+        print(f"[✅ DATABASE] Lecture record updated: {task_id}")
 
     except Exception as e:
         print(f"[❌ ERROR in background task {task_id}]: {e}")
+        # Update lecture status to failed
+        try:
+            db = await get_client()
+            await db.lecture.update(
+                where={"id": task_id},
+                data={
+                    "videoStatus": VideoStatus.FAILED,
+                    "errorMessage": str(e),
+                    "processingCompletedAt": datetime.utcnow()
+                }
+            )
+        except Exception as db_error:
+            print(f"[❌ DATABASE ERROR]: Could not update failed status: {db_error}")
 @app.post("/assemble_background_task/{task_id}")
-def assemble_background_route(task_id: str):
+async def assemble_background_route(task_id: str):
     """Manual endpoint for testing background assembly."""
     try:
         theme = "Minimalist"  # Default theme if not stored
-        assemble_background_task(task_id, theme)
+        await assemble_background_task(task_id, theme)
         return {"status": "ok", "task_id": task_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
