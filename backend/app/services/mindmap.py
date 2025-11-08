@@ -29,7 +29,7 @@ class MindMapService:
         
         genai.configure(api_key=settings.GEMINI_API_KEY)
         self.model = genai.GenerativeModel(
-            model_name="gemini-2.0-flash-exp",
+            model_name="gemini-2.5-pro",
         )
     
     async def generate_mindmap(
@@ -69,6 +69,7 @@ class MindMapService:
             
             # Parse JSON response
             response_text = response.text.strip()
+            logger.debug(f"Raw Gemini response (first 500 chars): {response_text[:500]}")
             
             # Remove markdown code blocks if present
             if response_text.startswith("```json"):
@@ -82,10 +83,24 @@ class MindMapService:
             response_text = response_text.strip()
             
             # Parse JSON
-            mindmap_json = json.loads(response_text)
+            try:
+                mindmap_json = json.loads(response_text)
+                logger.info(f"Successfully parsed mindmap JSON with {len(mindmap_json.get('branches', []))} branches")
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse Gemini response. Response text: {response_text[:1000]}")
+                raise ValueError(f"Invalid JSON from Gemini: {str(e)}")
+            
+            # Validate structure
+            if not isinstance(mindmap_json, dict):
+                raise ValueError("Mindmap JSON must be a dictionary")
+            if "central" not in mindmap_json:
+                raise ValueError("Missing 'central' node in mindmap")
+            if "branches" not in mindmap_json or not mindmap_json["branches"]:
+                raise ValueError("Missing or empty 'branches' in mindmap")
             
             # Validate and structure the data
             mindmap_data = self._validate_mindmap_structure(mindmap_json)
+            logger.info(f"Validated mindmap structure successfully")
             
             # Generate Mermaid syntax
             mermaid_syntax = self._generate_mermaid_syntax(mindmap_data)
@@ -115,62 +130,105 @@ class MindMapService:
         max_depth: int
     ) -> str:
         """Build the prompt for Gemini"""
-        return f"""Generate a comprehensive mindmap for a lecture on "{topic}".
+        return f"""You are an educational mindmap generator. Generate a comprehensive, well-structured mindmap for a lecture.
 
-TARGET AUDIENCE: {audience}
-LECTURE DURATION: {duration} minutes
-MAX BRANCHES: {max_branches} main branches from the central node
-MAX DEPTH: {max_depth} levels of hierarchy
+LECTURE DETAILS:
+- Topic: "{topic}"
+- Target Audience: {audience}
+- Duration: {duration} minutes
+- Required Branches: {max_branches}
+- Hierarchy Depth: {max_depth} levels
 
-REQUIREMENTS:
-1. Create a hierarchical mindmap with a central node (root)
-2. Create {max_branches} main branches covering key concepts
-3. Each branch should have 2-4 children (sub-concepts)
-4. Include meaningful descriptions for nodes
-5. Add cross-connections between related concepts (using "enables", "requires", "relates", "builds-on")
-6. Ensure all node IDs are unique and lowercase with underscores (e.g., "quantum_gates", "superposition_principle")
-7. Make connections logical and educationally meaningful
+STRICT REQUIREMENTS:
+1. **Central Node**: MUST have id="root", a clear label, and comprehensive description
+2. **Main Branches**: Create EXACTLY {max_branches} main branches
+3. **Branch Structure**: Each branch MUST have:
+   - Unique id (lowercase, underscores, no spaces)
+   - Clear label
+   - parent="root"
+   - Detailed description (2-3 sentences explaining the concept)
+   - 2-4 children nodes
+4. **Children**: Each child MUST have:
+   - Unique id (format: parent_id + specific_name)
+   - Clear label
+   - Concise description (1-2 sentences)
+5. **Connections**: Create 3-5 cross-connections between different branches using types: "enables", "requires", "relates", "builds-on"
+6. **Node ID Rules**:
+   - Only lowercase letters, numbers, and underscores
+   - Examples: "quantum_basics", "gate_operations", "measurement_theory"
+   - MUST be unique across entire mindmap
+7. **Educational Quality**:
+   - Descriptions must be factually accurate
+   - Content appropriate for {audience}
+   - Concepts logically organized
+   - Progressive complexity from simple to advanced
 
-OUTPUT FORMAT (JSON ONLY, NO MARKDOWN):
+CRITICAL OUTPUT FORMAT:
+You MUST return ONLY a valid JSON object with this EXACT structure. NO markdown, NO code blocks, NO explanations:
+
 {{
   "central": {{
     "id": "root",
-    "label": "<Main topic title>",
-    "description": "<Brief overview of the topic>"
+    "label": "Main Topic Title",
+    "description": "Comprehensive 2-3 sentence overview of the entire topic."
   }},
   "branches": [
     {{
-      "id": "<unique_id>",
-      "label": "<Branch title>",
+      "id": "branch_1_id",
+      "label": "First Main Concept",
       "parent": "root",
-      "description": "<What this branch covers>",
+      "description": "Detailed 2-3 sentence explanation of this main concept and its importance.",
       "children": [
         {{
-          "id": "<unique_child_id>",
-          "label": "<Child concept>",
-          "description": "<Brief explanation>"
+          "id": "branch_1_child_1",
+          "label": "Sub-concept 1",
+          "description": "Clear 1-2 sentence explanation of this sub-concept."
+        }},
+        {{
+          "id": "branch_1_child_2",
+          "label": "Sub-concept 2",
+          "description": "Clear 1-2 sentence explanation of this sub-concept."
+        }}
+      ]
+    }},
+    {{
+      "id": "branch_2_id",
+      "label": "Second Main Concept",
+      "parent": "root",
+      "description": "Detailed 2-3 sentence explanation of this main concept.",
+      "children": [
+        {{
+          "id": "branch_2_child_1",
+          "label": "Sub-concept 1",
+          "description": "Clear explanation."
         }}
       ]
     }}
   ],
   "connections": [
     {{
-      "from": "<source_node_id>",
-      "to": "<target_node_id>",
-      "type": "enables|requires|relates|builds-on"
+      "from": "branch_1_child_1",
+      "to": "branch_2_child_1",
+      "type": "enables"
+    }},
+    {{
+      "from": "branch_2_id",
+      "to": "branch_1_id",
+      "type": "builds-on"
     }}
   ]
 }}
 
-IMPORTANT:
-- Return ONLY valid JSON (no markdown, no code blocks)
-- All node IDs must be unique
-- Descriptions should be educational and concise (1-2 sentences)
-- Create at least 2-3 cross-connections between branches
-- Ensure the mindmap is balanced and comprehensive
-- Focus on the most important concepts for a {duration}-minute lecture
+VALIDATION CHECKLIST:
+✓ Central node has all required fields
+✓ Exactly {max_branches} branches present
+✓ Each branch has 2-4 children
+✓ All node IDs are unique and follow naming rules
+✓ All descriptions are educational and complete
+✓ 3-5 meaningful cross-connections exist
+✓ Output is pure JSON (no markdown/code blocks)
 
-Generate the mindmap now:"""
+Generate the mindmap JSON NOW (raw JSON only):"""
     
     def _validate_mindmap_structure(self, raw_data: Dict[str, Any]) -> MindMapData:
         """Validate and convert raw JSON to MindMapData model"""

@@ -8,7 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from prisma import Prisma
 
-from app.deps.auth import get_current_user
+from app.deps.auth import get_current_user, get_current_user_optional, CurrentUser
 from app.db import get_client
 from app.models.mindmap import (
     MindMapGenerateRequest,
@@ -31,11 +31,11 @@ router = APIRouter(tags=["mindmap"])
     status_code=status.HTTP_201_CREATED,
     summary="Generate mindmap for a lecture",
     description="Generate a comprehensive mindmap for a lecture using Gemini 2.5 Pro. "
-                "Requires JWT authentication. Returns hierarchical mindmap structure and Mermaid syntax."
+                "Authentication optional for system lectures. Returns hierarchical mindmap structure and Mermaid syntax."
 )
 async def generate_mindmap(
     request: MindMapGenerateRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: Optional[CurrentUser] = Depends(get_current_user_optional),
     db: Prisma = Depends(get_client)
 ):
     """
@@ -61,7 +61,8 @@ async def generate_mindmap(
                 detail=f"Lecture {request.lecture_id} not found"
             )
         
-        if lecture.userId != current_user["sub"]:
+        # Skip authorization check for system-generated lectures (userId is None)
+        if lecture.userId and current_user and lecture.userId != current_user.user_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to generate mindmap for this lecture"
@@ -85,37 +86,89 @@ async def generate_mindmap(
             max_depth=request.max_depth
         )
         
-        # Convert MindMapData to dict for JSON storage
-        mindmap_dict = result["mindmap_data"].model_dump(by_alias=True)
+        # Convert MindMapData to JSON-serializable dict
+        import json as json_lib
+        
+        # First convert to dict with JSON mode to ensure proper serialization
+        mindmap_dict = result["mindmap_data"].model_dump(by_alias=True, mode='json')
+        
+        # Ensure it's JSON-serializable by doing a round-trip
+        try:
+            mindmap_json_str = json_lib.dumps(mindmap_dict)
+            mindmap_dict = json_lib.loads(mindmap_json_str)
+        except (TypeError, json_lib.JSONDecodeError) as e:
+            logger.error(f"Mindmap data is not JSON-serializable: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Generated mindmap data is not JSON-serializable: {str(e)}"
+            )
+        
+        # Log the structure for debugging
+        logger.info(f"Mindmap dict keys: {mindmap_dict.keys()}")
+        logger.info(f"Mindmap dict type: {type(mindmap_dict)}")
+        logger.info(f"Mindmap JSON string length: {len(mindmap_json_str)} chars")
+        logger.debug(f"Mindmap dict sample: {mindmap_json_str[:500]}")
+        
+        # Validate mindmap_dict is not empty and has required fields
+        if not mindmap_dict or not isinstance(mindmap_dict, dict):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Generated mindmap data is invalid or empty"
+            )
+        
+        if "central" not in mindmap_dict or "branches" not in mindmap_dict:
+            logger.error(f"Invalid mindmap structure - missing required fields. Keys: {mindmap_dict.keys()}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Generated mindmap structure is missing required fields"
+            )
         
         # Save or update in database
+        # Note: Prisma Python handles Json fields as Python dicts/lists
         if lecture.mindMap:
             # Update existing mindmap
-            mindmap = await db.mindmap.update(
-                where={"lectureId": request.lecture_id},
-                data={
-                    "data": mindmap_dict,
-                    "mermaidSyntax": result["mermaid_syntax"],
-                    "nodeCount": result["metadata"]["node_count"],
-                    "branchCount": result["metadata"]["branch_count"],
-                    "maxDepth": result["metadata"]["max_depth"],
-                    "updatedAt": datetime.utcnow()
-                }
-            )
-            logger.info(f"Updated mindmap {mindmap.id} for lecture {request.lecture_id}")
+            try:
+                mindmap = await db.mindmap.update(
+                    where={"lectureId": request.lecture_id},
+                    data={
+                        "data": mindmap_json_str,  # Pass as JSON string
+                        "mermaidSyntax": result["mermaid_syntax"],
+                        "nodeCount": result["metadata"]["node_count"],
+                        "branchCount": result["metadata"]["branch_count"],
+                        "maxDepth": result["metadata"]["max_depth"],
+                        "updatedAt": datetime.utcnow()
+                    }
+                )
+                logger.info(f"Updated mindmap {mindmap.id} for lecture {request.lecture_id}")
+            except Exception as e:
+                logger.error(f"Failed to update mindmap in database: {e}")
+                logger.error(f"Mindmap data type: {type(mindmap_json_str)}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to save mindmap to database: {str(e)}"
+                )
         else:
             # Create new mindmap
-            mindmap = await db.mindmap.create(
-                data={
-                    "lectureId": request.lecture_id,
-                    "data": mindmap_dict,
-                    "mermaidSyntax": result["mermaid_syntax"],
-                    "nodeCount": result["metadata"]["node_count"],
-                    "branchCount": result["metadata"]["branch_count"],
-                    "maxDepth": result["metadata"]["max_depth"]
-                }
-            )
-            logger.info(f"Created mindmap {mindmap.id} for lecture {request.lecture_id}")
+            try:
+                mindmap = await db.mindmap.create(
+                    data={
+                        "lectureId": request.lecture_id,
+                        "data": mindmap_json_str,  # Pass as JSON string
+                        "mermaidSyntax": result["mermaid_syntax"],
+                        "nodeCount": result["metadata"]["node_count"],
+                        "branchCount": result["metadata"]["branch_count"],
+                        "maxDepth": result["metadata"]["max_depth"]
+                    }
+                )
+                logger.info(f"Created mindmap {mindmap.id} for lecture {request.lecture_id}")
+            except Exception as e:
+                logger.error(f"Failed to create mindmap in database: {e}")
+                logger.error(f"Mindmap data type: {type(mindmap_json_str)}")
+                logger.error(f"Mindmap data sample: {mindmap_json_str[:200]}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to save mindmap to database: {str(e)}"
+                )
         
         # Return response
         return MindMapResponse(
@@ -147,11 +200,11 @@ async def generate_mindmap(
     "/lecture/{lecture_id}",
     response_model=MindMapRetrieveResponse,
     summary="Get mindmap for a lecture",
-    description="Retrieve an existing mindmap for a lecture. Requires JWT authentication."
+    description="Retrieve an existing mindmap for a lecture. Authentication optional for system lectures."
 )
 async def get_mindmap_by_lecture(
     lecture_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: Optional[CurrentUser] = Depends(get_current_user_optional),
     db: Prisma = Depends(get_client)
 ):
     """
@@ -174,7 +227,9 @@ async def get_mindmap_by_lecture(
                 detail=f"Lecture {lecture_id} not found"
             )
         
-        if lecture.userId != current_user["sub"]:
+        # Skip authorization check for system-generated lectures (userId is None)
+        # or if no user is authenticated
+        if lecture.userId and current_user and lecture.userId != current_user.user_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to access this mindmap"

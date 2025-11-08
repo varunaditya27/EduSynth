@@ -146,14 +146,34 @@ def get_status(task_id: str):
         final_video = final_dir / f"{task_id}_merged.mp4"
         
         if final_video.exists():
-            # Video is complete - check if uploaded to R2
+            # Video is complete - construct public R2 URL
             try:
-                # Try to construct R2 URL
-                endpoint = settings.CLOUDFLARE_S3_ENDPOINT
-                bucket = settings.CLOUDFLARE_S3_BUCKET_NAME
-                s3_key = f"videos/{task_id}_merged.mp4"
+                # Read meta.json to get the actual uploaded URL
+                meta_file = OUTDIR / task_id / "meta.json"
+                if meta_file.exists():
+                    meta_data = json.loads(meta_file.read_text(encoding="utf-8"))
+                    video_url = meta_data.get("final_cloud_url")
+                    if video_url:
+                        return {
+                            "task_id": task_id,
+                            "status": "completed",
+                            "progress": 100,
+                            "topic": topic,
+                            "videoUrl": video_url,
+                            "message": "Video generation complete"
+                        }
                 
-                video_url = f"{endpoint.rstrip('/')}/{bucket}/{s3_key}"
+                # Fallback: construct public URL from settings
+                r2_public_url = getattr(settings, "CLOUDFLARE_R2_PUBLIC_URL", None)
+                if r2_public_url:
+                    # Use the same s3_key format as in assemble_background_task
+                    s3_key = f"edusynth/{task_id}/{task_id}_merged.mp4"
+                    video_url = f"{r2_public_url.rstrip('/')}/{s3_key}"
+                else:
+                    # Last resort: use endpoint (but this won't be publicly accessible)
+                    endpoint = settings.CLOUDFLARE_S3_ENDPOINT
+                    s3_key = f"edusynth/{task_id}/{task_id}_merged.mp4"
+                    video_url = f"{endpoint.rstrip('/')}/{s3_key}"
                 
                 return {
                     "task_id": task_id,

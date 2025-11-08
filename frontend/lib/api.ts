@@ -86,7 +86,34 @@ export interface MindMapResponse {
     connection_count?: number;
   };
   created_at: string;
-  updated_at?: string;
+}
+
+export interface MindMapRetrieveResponse {
+  lecture_id: string;
+  mindmap_id: string;
+  mind_map: MindMapData;
+  mermaid_syntax: string;
+  metadata: {
+    node_count: number;
+    branch_count: number;
+    max_depth: number;
+    connection_count?: number;
+  };
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MindMapDeleteResponse {
+  message: string;
+  lecture_id: string;
+  deleted_at: string;
+}
+
+export interface MindMapHealthResponse {
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  service: string;
+  gemini_available: boolean;
+  database_connected: boolean;
 }
 
 export interface MindMapGenerateRequest {
@@ -421,7 +448,50 @@ class ApiClient {
       throw new Error('Failed to fetch lectures');
     }
 
-    return response.json();
+    const data = await response.json();
+    
+    // Transform backend response to frontend Lecture format
+    return data.map((lecture: any) => ({
+      id: lecture.id,
+      topic: lecture.topic,
+      audience: lecture.targetAudience || 'Students',
+      duration: lecture.desiredLength,
+      theme: lecture.visualTheme?.toLowerCase() || 'minimalist',
+      status: this.mapVideoStatusToFrontend(lecture.videoStatus),
+      videoUrl: lecture.videoUrl,
+      slidesUrl: lecture.slidesPdfUrl,
+      createdAt: lecture.createdAt,
+      progress: this.calculateProgress(lecture.videoStatus),
+      errorMessage: lecture.errorMessage,
+    }));
+  }
+
+  private mapVideoStatusToFrontend(status: string): 'pending' | 'processing' | 'completed' | 'failed' {
+    const statusMap: Record<string, 'pending' | 'processing' | 'completed' | 'failed'> = {
+      'PENDING': 'pending',
+      'GENERATING_CONTENT': 'processing',
+      'CREATING_SLIDES': 'processing',
+      'FETCHING_IMAGES': 'processing',
+      'GENERATING_AUDIO': 'processing',
+      'ASSEMBLING_VIDEO': 'processing',
+      'COMPLETED': 'completed',
+      'FAILED': 'failed',
+    };
+    return statusMap[status] || 'pending';
+  }
+
+  private calculateProgress(status: string): number {
+    const progressMap: Record<string, number> = {
+      'PENDING': 0,
+      'GENERATING_CONTENT': 20,
+      'CREATING_SLIDES': 40,
+      'FETCHING_IMAGES': 60,
+      'GENERATING_AUDIO': 70,
+      'ASSEMBLING_VIDEO': 90,
+      'COMPLETED': 100,
+      'FAILED': 0,
+    };
+    return progressMap[status] || 0;
   }
 
   async deleteLecture(id: string): Promise<void> {
@@ -542,7 +612,7 @@ class ApiClient {
     return response.json();
   }
 
-  async getMindmapByLecture(lectureId: string, token?: string): Promise<MindMapResponse> {
+  async getMindmapByLecture(lectureId: string, token?: string): Promise<MindMapRetrieveResponse> {
     const response = await fetch(`${this.baseUrl}/v1/mindmap/lecture/${lectureId}`, {
       method: 'GET',
       headers: {
@@ -561,7 +631,26 @@ class ApiClient {
     return response.json();
   }
 
-  async deleteMindmap(lectureId: string, token?: string): Promise<void> {
+  async getMindmapById(mindmapId: string, token?: string): Promise<MindMapRetrieveResponse> {
+    const response = await fetch(`${this.baseUrl}/v1/mindmap/${mindmapId}`, {
+      method: 'GET',
+      headers: {
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error('MINDMAP_NOT_FOUND');
+      }
+      const error = await response.json().catch(() => ({ detail: 'Failed to get mindmap' }));
+      throw new Error(error.detail || 'Failed to get mindmap');
+    }
+
+    return response.json();
+  }
+
+  async deleteMindmap(lectureId: string, token?: string): Promise<MindMapDeleteResponse> {
     const response = await fetch(`${this.baseUrl}/v1/mindmap/lecture/${lectureId}`, {
       method: 'DELETE',
       headers: {
@@ -573,6 +662,19 @@ class ApiClient {
       const error = await response.json().catch(() => ({ detail: 'Failed to delete mindmap' }));
       throw new Error(error.detail || 'Failed to delete mindmap');
     }
+
+    return response.json();
+  }
+
+  async getMindmapHealth(): Promise<MindMapHealthResponse> {
+    const response = await fetch(`${this.baseUrl}/v1/mindmap/health`);
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to get mindmap health' }));
+      throw new Error(error.detail || 'Failed to get mindmap health');
+    }
+
+    return response.json();
   }
 
   // Authentication Methods
