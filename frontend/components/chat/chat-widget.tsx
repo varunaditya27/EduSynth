@@ -52,7 +52,6 @@ export default function ChatWidget({ topicContext, lectureId, className }: ChatW
   });
   
   const [isStreaming, setIsStreaming] = useState(false);
-  const [streamingMessage, setStreamingMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   
@@ -93,7 +92,7 @@ export default function ChatWidget({ topicContext, lectureId, className }: ChatW
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, streamingMessage]);
+  }, [messages]);
 
   const handleSendMessage = async (content: string) => {
     // Add user message
@@ -104,13 +103,10 @@ export default function ChatWidget({ topicContext, lectureId, className }: ChatW
     };
     setMessages((prev) => [...prev, userMessage]);
     setIsStreaming(true);
-    setStreamingMessage('');
 
     try {
-      // Use streaming for better UX
-      let fullResponse = '';
-
-      await apiClient.streamChat(
+      // Use non-streaming for better markdown rendering
+      const response = await apiClient.chat(
         {
           message: content,
           conversation_history: messages.map((m) => ({
@@ -120,21 +116,16 @@ export default function ChatWidget({ topicContext, lectureId, className }: ChatW
           topic_context: topicContext,
           lecture_id: lectureId,
         },
-        (chunk) => {
-          fullResponse += chunk;
-          setStreamingMessage(fullResponse);
-        },
         token || undefined
       );
 
       // Add complete assistant message
       const assistantMessage: ChatMessageType = {
         role: 'assistant',
-        content: fullResponse,
+        content: response.message,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, assistantMessage]);
-      setStreamingMessage('');
     } catch (error) {
       console.error('Chat error:', error);
       // Add error message
@@ -215,13 +206,8 @@ export default function ChatWidget({ topicContext, lectureId, className }: ChatW
                 <ChatMessage key={idx} role={msg.role} content={msg.content} timestamp={msg.timestamp} />
               ))}
 
-              {/* Streaming Message */}
-              {isStreaming && streamingMessage && (
-                <ChatMessage role="assistant" content={streamingMessage} />
-              )}
-
               {/* Typing Indicator */}
-              {isStreaming && !streamingMessage && (
+              {isStreaming && (
                 <div className="flex gap-3">
                   <div className="shrink-0 w-8 h-8 rounded-full bg-linear-to-br from-accent to-primary border border-white/10 flex items-center justify-center">
                     <Sparkles className="w-4 h-4 text-white" />
