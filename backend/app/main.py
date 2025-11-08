@@ -22,6 +22,8 @@ from .db import get_client
 from prisma import Prisma
 from prisma.enums import VideoStatus, VisualTheme
 from datetime import datetime
+from .services.quiz_service import generate_quiz_questions, format_quiz_for_lms
+
 # merge_utils no longer needed - video already has audio from MoviePy
 
 # --- Setup ---
@@ -281,6 +283,80 @@ async def generate(req: GenerateRequest, background_tasks: BackgroundTasks):
         "status": "processing",
         "message": "Slides generated successfully. Video generation has started in background.",
     }
+
+
+# ============ QUIZ GENERATION ENDPOINTS ============
+
+class QuizRequest(BaseModel):
+    num_questions: Optional[int] = 3
+    format: Optional[str] = "plain"  # plain, moodle, canvas
+
+@app.post("/generate-quiz/{lecture_id}")
+async def generate_quiz(lecture_id: str, req: QuizRequest):
+    """
+    Generate quiz questions for a lecture based on its content.
+    
+    Args:
+        lecture_id: UUID of the lecture
+        req: QuizRequest with num_questions (default: 3) and format (plain/moodle/canvas)
+    
+    Returns:
+        JSON with questions and formatted quiz text
+    """
+    try:
+        # Fetch lecture from database
+        db = await get_client()
+        lecture = await db.lecture.find_unique(
+            where={"id": lecture_id},
+            include={"slides": True}
+        )
+        
+        if not lecture:
+            raise HTTPException(status_code=404, detail=f"Lecture {lecture_id} not found")
+        
+        if not lecture.slides or len(lecture.slides) == 0:
+            raise HTTPException(
+                status_code=400, 
+                detail="Cannot generate quiz: Lecture has no slides"
+            )
+        
+        # Extract slide content
+        slides_data = [
+            {
+                "title": slide.title,
+                "bullet_points": slide.bulletPoints or [],
+                "narration": slide.narrationText or ""
+            }
+            for slide in lecture.slides
+        ]
+        
+        print(f"[Quiz] Generating {req.num_questions} questions for lecture: {lecture.topic}")
+        
+        # Generate quiz questions
+        questions = await generate_quiz_questions(
+            topic=lecture.topic,
+            slides=slides_data,
+            audience=lecture.targetAudience or "general",
+            num_questions=req.num_questions or 3
+        )
+        
+        # Format for requested LMS
+        formatted_quiz = format_quiz_for_lms(questions, req.format or "plain")
+        
+        return {
+            "lecture_id": lecture_id,
+            "topic": lecture.topic,
+            "num_questions": len(questions),
+            "questions": questions,
+            "formatted_text": formatted_quiz,
+            "format": req.format or "plain"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Quiz] ❌ Error generating quiz: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate quiz: {str(e)}")
 
 
 def assemble_background_task_wrapper(task_id: str, theme: str):

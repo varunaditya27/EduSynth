@@ -20,6 +20,18 @@ export interface QuizQuestion {
   question: string;
   options: string[];
   correctAnswer: number;
+  correct_answer?: number;  // Backend compatibility
+  explanation?: string;
+  difficulty?: string;
+}
+
+export interface QuizResponse {
+  lecture_id: string;
+  topic: string;
+  num_questions: number;
+  questions: QuizQuestion[];
+  formatted_text: string;
+  format: string;
 }
 
 export interface ChatMessage {
@@ -820,6 +832,28 @@ class ApiClient {
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Failed to fetch PDF status' }));
       throw new Error(error.detail || 'Failed to fetch PDF status');
+    }
+
+    return response.json();
+  }
+
+  // Quiz Generation Methods
+  async generateQuiz(
+    lectureId: string,
+    numQuestions: number = 3,
+    format: 'plain' | 'moodle' | 'canvas' = 'plain'
+  ): Promise<QuizResponse> {
+    const response = await fetch(`${this.baseUrl}/generate-quiz/${lectureId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ num_questions: numQuestions, format }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Failed to generate quiz' }));
+      throw new Error(error.detail || 'Failed to generate quiz');
     }
 
     return response.json();

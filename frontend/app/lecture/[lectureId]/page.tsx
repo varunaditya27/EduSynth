@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { apiClient, Lecture } from '@/lib/api';
+import { apiClient, Lecture, QuizResponse } from '@/lib/api';
 import Iridescence from '@/components/Iridescence';
 import VideoPlayer from '@/components/sections/video-player';
 import GlassCard from '@/components/ui/glass-card';
@@ -12,7 +12,7 @@ import QuizPreviewModal from '@/components/modals/quiz-preview-modal';
 import LoadingDots from '@/components/ui/loading-dots';
 import ChatWidget from '@/components/chat/chat-widget';
 import MindmapWidget from '@/components/mindmap/mindmap-widget';
-import { ArrowLeft, Download, FileText, PlayCircle } from 'lucide-react';
+import { ArrowLeft, Download, FileText, PlayCircle, Brain, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 
 export default function LectureDetailPage() {
@@ -23,6 +23,9 @@ export default function LectureDetailPage() {
   const [lecture, setLecture] = useState<Lecture | null>(null);
   const [loading, setLoading] = useState(true);
   const [showQuiz, setShowQuiz] = useState(false);
+  const [quizData, setQuizData] = useState<QuizResponse | null>(null);
+  const [generatingQuiz, setGeneratingQuiz] = useState(false);
+  const [quizError, setQuizError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!lectureId) return;
@@ -40,6 +43,24 @@ export default function LectureDetailPage() {
 
     fetchLecture();
   }, [lectureId]);
+
+  const handleGenerateQuiz = async () => {
+    if (!lecture || generatingQuiz) return;
+    
+    setGeneratingQuiz(true);
+    setQuizError(null);
+
+    try {
+      const response = await apiClient.generateQuiz(lectureId, 3, 'plain');
+      setQuizData(response);
+      setShowQuiz(true);
+    } catch (err) {
+      console.error('Failed to generate quiz:', err);
+      setQuizError(err instanceof Error ? err.message : 'Failed to generate quiz');
+    } finally {
+      setGeneratingQuiz(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -151,19 +172,73 @@ export default function LectureDetailPage() {
             </div>
           </GlassCard>
 
-          {lecture.quizQuestions && lecture.quizQuestions.length > 0 && (
-            <GlassCard>
-              <div className="space-y-4">
-                <h2 className="text-2xl font-bold">Quiz Questions</h2>
-                <p className="text-muted-foreground">
-                  Test comprehension with {lecture.quizQuestions.length} auto-generated questions
-                </p>
-                <GradientButton onClick={() => setShowQuiz(true)}>
-                  View Quiz Questions
-                </GradientButton>
+          {/* Quiz Generation Section */}
+          <GlassCard>
+            <div className="space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Brain className="w-6 h-6 text-primary" />
+                    <h2 className="text-2xl font-bold">Quiz Questions</h2>
+                  </div>
+                  <p className="text-muted-foreground">
+                    {quizData 
+                      ? `${quizData.num_questions} AI-generated questions ready for export`
+                      : 'Generate comprehension questions based on lecture content'
+                    }
+                  </p>
+                </div>
+                <Sparkles className="w-8 h-8 text-primary/50" />
               </div>
-            </GlassCard>
-          )}
+
+              {quizError && (
+                <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400">
+                  <p className="text-sm">{quizError}</p>
+                </div>
+              )}
+
+              <div className="flex items-center gap-3">
+                {!quizData ? (
+                  <GradientButton 
+                    onClick={handleGenerateQuiz}
+                    disabled={generatingQuiz || lecture.status !== 'completed'}
+                  >
+                    {generatingQuiz ? (
+                      <>
+                        <LoadingDots />
+                        <span className="ml-2">Generating Quiz...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-5 h-5 mr-2" />
+                        Generate Quiz
+                      </>
+                    )}
+                  </GradientButton>
+                ) : (
+                  <>
+                    <GradientButton onClick={() => setShowQuiz(true)}>
+                      <FileText className="w-5 h-5 mr-2" />
+                      View Quiz ({quizData.num_questions} Questions)
+                    </GradientButton>
+                    <GradientButton 
+                      variant="secondary"
+                      onClick={handleGenerateQuiz}
+                      disabled={generatingQuiz}
+                    >
+                      {generatingQuiz ? 'Regenerating...' : 'Regenerate'}
+                    </GradientButton>
+                  </>
+                )}
+              </div>
+
+              {lecture.status !== 'completed' && (
+                <p className="text-xs text-muted-foreground">
+                  ⚠ Quiz generation available after lecture video is complete
+                </p>
+              )}
+            </div>
+          </GlassCard>
 
           <GlassCard>
             <div className="space-y-4">
@@ -199,11 +274,14 @@ export default function LectureDetailPage() {
         </div>
       </div>
 
-      {lecture.quizQuestions && (
+      {quizData && (
         <QuizPreviewModal
           isOpen={showQuiz}
           onClose={() => setShowQuiz(false)}
-          questions={lecture.quizQuestions}
+          questions={quizData.questions}
+          topic={quizData.topic}
+          formattedText={quizData.formatted_text}
+          lectureId={quizData.lecture_id}
         />
       )}
 
